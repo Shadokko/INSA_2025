@@ -29,6 +29,7 @@ Supervisors@Gentiana:
     * main statistical modeling script: ./nf_src/statistical_modeling_main.py
     * its parameters file (an application of it may be found in pcloud, experiments/ folder): input\parameters_template.yml
     * analysis scripts in ./nf_src/model_analysis/
+    * The original scripts from Benjamin Deneu: ./example*.py, and lib/* (where some scripts are from N. Faure in fact)
 
 CAUTION: the input files should be changed with appropriate pathes to be able to run the scripts (paths are absolute... sorry about that). In addition, I did not test the scripts since... 2024. I'll do it in the following days.
 
