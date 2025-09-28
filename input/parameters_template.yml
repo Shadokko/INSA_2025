@@ -1,0 +1,95 @@
+# Parameter file for training and evaluation of models
+
+global:
+  root_path: 'C:\Users\fauren\PycharmProjects\cnn-sdm\output\experiments\top1200\default_model' # 'C:\Users\fauren\PycharmProjects\cnn-sdm\output\experiments\if_all_except_NF' # path to the cnn-sdm project folder, will be set as working directory
+  raster_path: 'C:/Users/fauren/PycharmProjects/cnn-sdm/data/rasters_GLC19'
+  patch_size: 4
+  n_label: 1200 # number of labels in the dataset
+   # path to the raster data folder (absolute or ./ from root_path)
+  raster_metadata: {'alti': {'nan': 0},
+                    'awc_top': {'nan': -1},
+                    'bs_top': {'nan': 30},
+                    'cec_top': {'nan': 0},
+                    'chbio_1': {'min_val': -10.7, 'max_val': 18.4, 'nan': -11.},
+                    'chbio_2': {'min_val': 7.8, 'max_val': 21.0, 'nan': 7.},
+                    'chbio_3': {'min_val': 41.1, 'max_val': 60., 'nan': 40.},
+                    'chbio_4': {'min_val': 302.7, 'max_val': 777.8, 'nan': 300.},
+                    'chbio_5': {'min_val': 6.1, 'max_val': 36.6, 'nan': 5.},
+                    'chbio_6': {'min_val': -28.3, 'max_val': 5.4, 'nan': -29.},
+                    'chbio_7': {'min_val': 16.7, 'max_val': 42., 'nan': 16.},
+                    'chbio_8': {'min_val': -14.2, 'max_val': 23.0, 'nan': -15.},
+                    'chbio_9': {'min_val': -17.7, 'max_val': 26.5, 'nan': -19.},
+                    'chbio_10': {'min_val': -2.8, 'max_val': 26.5, 'nan': -4.},
+                    'chbio_11': {'min_val': -17.7, 'max_val': 11.8, 'nan': -19.},
+                    'chbio_12': {'min_val': 318.3, 'max_val': 2543.3, 'nan': 317.},
+                    'chbio_13': {'min_val': 43., 'max_val': 285.5, 'nan': 42.},
+                    'chbio_14': {'min_val': 3.0, 'max_val': 135.6, 'nan': 2.},
+                    'chbio_15': {'min_val': 8.2, 'max_val': 26.5, 'nan': 7.},
+                    'chbio_16': {'min_val': 121.6, 'max_val': 855.6, 'nan': 120.},
+                    'chbio_17': {'min_val': 19.8, 'max_val': 421.3, 'nan': 19.},
+                    'chbio_18': {'min_val': 19.8, 'max_val': 851.7, 'nan': 19.},
+                    'chbio_19': {'min_val': 60.5, 'max_val': 520.4, 'nan': 60.},
+                    'clc': {'attrib_column': 'CLC_CODE', 'one_hot': True, 'nan': 0},
+                    'crusting': {'nan': -1.},
+                    'dgh': {'nan': 10},
+                    'dimp': {'nan': 50},
+                    'erodi': {'nan': -1},
+                    'etp': {'nan': 132},
+                    'oc_top': {'nan': 0},
+                    'pd_top': {'nan': 0},
+                    'proxi_eau_fast': {'attrib_column': None, 'nan': -1, 'dtype': rasterio.ubyte},
+                    'text': {'nan': -1}}
+
+
+train: # specifies parameters for training (only)
+  do_train: True  # specifies wether training is carried out or not. If not, the path to a pretrained model should be passed for evaluation.
+  trainset_path: 'C:\Users\fauren\PycharmProjects\bac_a_sable\GP\databases\InFloris\infloris_reformat.csv' # './data/train_dataset.csv' # path to the training dataset
+
+  id_column: 'Code_Espèce' # 'id' for sdm dataset
+  label_column: 'Rang_frequence' # 'Label' for sdm dataset
+  latitude_column: 'Latitude'
+  longitude_column: 'Longitude'
+
+  sampling: # specifies sampling rules
+    val_size: 0.01 # fraction of training dataset to be used for validation
+    seed: 42 # random seed used for train set sampling (if any random step should be carried out)
+    random_subset: False  # size of the random subset to be made. Pass False if no random subset
+    columns: ['Observateur', 'top1200'] # list of columns to be used (successively) for sample inclusion/exclusion
+    inclusion: [False, [True]] # LIST OF LISTs of values in columns to be used (successively) for INCLUSION. Set to False if no inclusion on the column
+    exclusion: [['Alain POIREL', 'Anaïs MAS', 'Jean-Marc TISON'], False] # idem for exclusion
+  model:
+    type: 'rf' # either 'rf' (random forest), 'frequency', 'random', or 'inception' (cnn)
+    parameters: {n_estimators: 300, max_depth: 10}
+#    {batch_size: 1,
+   #              iterations: [90, 130, 150, 170, 180],
+    #             log_modulo: 32,
+     #             val_modulo: 1,
+      #            lr: 0.1,
+       #          gamma: 0.1}
+    # for random forest {n_estimators: 100, max_depth: 14}
+    save: './default_rf_if_top1200' # './rf_infloris_all_except_NF.skl' # path to file where to save model
+
+test: # specifies parameters for training (only)
+  do_test: True
+  testset_path: 'C:\Users\fauren\PycharmProjects\bac_a_sable\GP\databases\InFloris\infloris_reformat.csv'
+  model_path: False # 'C:\Users\fauren\PycharmProjects\cnn-sdm\rf.skl' # pass False if want to use a model trained previously
+
+  id_column: 'Code_Espèce' # 'id' for sdm dataset
+  label_column: 'Rang_frequence' # 'Label' for sdm dataset
+  latitude_column: 'Latitude'
+  longitude_column: 'Longitude'
+
+  sampling:  # specifies sampling rules
+    seed: 42 # random seed used for train set sampling (if any random step should be carried out)
+    random_subset: False  # size of the random subset to be made. Pass None if no random subset
+    columns: ['Observateur', 'top1200'] # list of columns to be used (successively) for sample inclusion/exclusion
+    inclusion: [['Alain POIREL', 'Anaïs MAS', 'Jean-Marc TISON'], [True]] # LIST OF LISTs of values in columns to be used (successively) for INCLUSION. Set to False if no inclusion on the column
+    exclusion: [False, False] # idem for exclusion
+
+  export:
+    path2outputfile: './result_export.csv'
+    path2sp_label: 'C:\Users\fauren\PycharmProjects\bac_a_sable\GP\databases\InFloris\infloris_species_frequency_table.csv' # path to the file specifying label to species correspondance
+    label_column: 'Rang_frequence_espece' # 'sdm_label' for cnnsdm
+    sp_column: 'Espece' # 'species' for cnnsdm
+    do_top100: True
+    do_raw_predictions: True
