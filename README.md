@@ -23,6 +23,7 @@ Supervisors@Gentiana:
 - Look at the data, in particular the "reformated" version of InFloris database (in pCloud, subfolder databases/InFloris)
 
 - Clone this git project
+- create your own branch before committing anything.
 - Install python 3.12
 - set up your virtual environment using the requirements.txt file
 - start looking at the scripts: 
@@ -30,6 +31,9 @@ Supervisors@Gentiana:
     * its parameters file (an application of it may be found in pcloud, experiments/ folder): input\parameters_template.yml
     * analysis scripts in ./nf_src/model_analysis/
     * The original scripts from Benjamin Deneu: ./example*.py, and lib/* (where some scripts are from N. Faure in fact)
+- Look a the results of top2000 experiment (you can download them on pCloud, it is a .csv file).
+- Make your first script to visualize them. You may pick some functions from nf_src\model_analysis\prediction_analysis.py
+- Later, you may load the model from "top2000" experiment and start making some inferences
 
 CAUTION: the input files should be changed with appropriate pathes to be able to run the scripts (paths are absolute... sorry about that). In addition, I did not test the scripts since... 2024. I'll do it in the following days.
 
