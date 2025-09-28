@@ -1,3 +1,6 @@
 log files are not versioned on git
 
-you can find them in pcloud
+
+This folder contains the log of experiments
+
+TODO: move it to experiments folder
