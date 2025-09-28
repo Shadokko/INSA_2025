@@ -5,11 +5,9 @@ usage:
 first of all, copy the template config file:
 cp ./input/parameters_template.yml ./input/parameters.yml ./output/experiments/<my_experiment_subfolder>
 
-
-
 python ./nf_src/statistical_modeling_main.py -c ./input/parameters_template.yml
 
-todo: allow for selection of rasters
+TODO: allow for selection of rasters
 """
 
 import sys
