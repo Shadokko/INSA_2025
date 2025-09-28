@@ -3,16 +3,16 @@
 Project with INSA students september 2025-january 2026
 
 Students: 
-- "Laetitia Guerout" <laetitia.guerout@insa-lyon.fr>
-- "Anthony Journy" <anthony.journy@insa-lyon.fr>
+- Laetitia Guerout
+- Anthony Journy
 
 Tutor@INSA:
-- "Hubert Charles" <hubert.charles@insa-lyon.fr>
+- Hubert Charles
 
 Supervisors@Gentiana:
-- "nfaurehome" <nfaurehome@free.fr>
-- "francois munoz" <francois.munoz@hotmail.fr>
-- "alain poirel" <alain.poirel@wanadoo.fr>
+- Nicolas Faure
+- François Munoz
+- Alain Poirel
 
 
 
