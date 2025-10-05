@@ -10,13 +10,13 @@ import plotnine as gg
 from gentiana_toolbox.database import df_filter
 import sys
 
-path2folder2analyze = Path(r'C:\Users\fauren\Documents_nosync\cnn_sdm_output\experiments\Compare_models')
+path2folder2analyze = Path(r'../cnn-sdm/experiments/Compare_models') # Path(r'C:\Users\fauren\Documents_nosync\cnn_sdm_output\experiments\Compare_models') #usere dependent
 path2folder2analyze_top1200 = path2folder2analyze.parent / 'top1200'
 
-path2preds_rf_if = Path(r'C:\Users\fauren\Documents_nosync\cnn_sdm_output\preds_rf_infloris_14-test_set_40000_small.csv')
+# path2preds_rf_if = Path(r'C:\Users\fauren\Documents_nosync\cnn_sdm_output\preds_rf_infloris_14-test_set_40000_small.csv')
 # Path(r'C:\Users\fauren\PycharmProjects\cnn-sdm\output\preds_rf_infloris_14-test_set_small.csv')
 
-path2outputfolder = Path(r'C:\Users\fauren\Documents_nosync\bac_a_sable_GP_databases\output')
+path2outputfolder = Path(r'output')
 
 
 def concat_melt_predictions(path2folder2analyze, glob='*/result_export.csv', remove_top100=True):
