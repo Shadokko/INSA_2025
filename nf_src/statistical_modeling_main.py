@@ -57,7 +57,8 @@ def cli_manager():
     _parser = argparse.ArgumentParser(description=__HELP__)
 
     # Get the parameter file using the option -c|--config
-    _parser.add_argument("-c", "--config", dest="config_file", type=str, required=True, metavar="config/milcnn.yml",
+    _parser.add_argument("-c", "--config", dest="config_file", type=str, required=False, 
+                         default='./experiments/rerun_2025/parameters_rerun_2025_default_if_rf_top2000.yml', 
                          help="Path to a config file in YAML format. Check the config/ subdirectory for examples")
 
     return _parser.parse_args()
@@ -192,7 +193,7 @@ if __name__ == '__main__':
     cli = cli_manager()
 
     # Some verbosity and preparation
-    print(f'Executing script "{sys.argv[0]}" \n    with argument {sys.argv[1]}')
+    print(f'Executing script "{sys.argv[0]}" \n') #    with argument {sys.argv[1]}')
     print(f'Time of launch: {time.asctime()}')
     tics =  {}
     tics['start'] = time.time()
