@@ -1,0 +1,33 @@
+# parameters file for streamlit/explore_geographical.py
+
+input:
+  path2obs: databases/infloris_reformat_with_address_final.csv
+  # cel_files\\inaturalist\\observations-579319_2infloris.csv
+  # .\\cel_files\\26\\cel_export_26_27052025_merged_2infloris.csv
+  # C:\\Users\\nfaur\\VSCode_projects\\GP\\databases\\InFloris\\infloris_reformat_with_address_final.csv # /mnt/c/Users/nfaur/VSCode_projects/GP/databases/InFloris/infloris_reformat.csv
+  # C:\\Users\\nfaur\\VSCode_projects\\GP\\databases\\InFloris\\infloris_reformat.csv
+  # C:\\Users\\fauren\\Documents_nosync\\perso\\LPO et Gentiana\\Data_G\\bac_a_sable_GP_databases\\InFloris\\infloris_reformat.csv
+
+output:
+  path2export: output/infloris_filtered.csv # C:\\Users\\nfaur\\VSCode_projects\\GP\\output\\exploration\\infloris_filtered.csv
+
+colonnes:
+  espece: Nom_Valide
+  date: Date_Releve
+  annee: Annee
+  mois: mois
+  observateur: Observateur
+  frequence: Rang_frequence
+  altitude: altitude
+  ville: ville
+  latitude: Latitude
+  longitude: Longitude
+
+valeurs_a_defaut:
+  ville: Grenoble
+
+geoportail:
+  tile: https://data.geopf.fr/wmts?REQUEST=GetTile&SERVICE=WMTS&VERSION=1.0.0&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/png&LAYER=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}
+  attr: <a target="_blank" href="https://www.geoportail.gouv.fr/">Geoportail France</a>
+
+verbose: True
