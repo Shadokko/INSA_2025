@@ -53,7 +53,7 @@ raster_metadata = {
     'etp': {'nan': 132},
     'oc_top': {'nan': 0},
     'pd_top': {'nan': 0},
-    'proxi_eau_fast': {'attrib_column': None, 'nan': -1, 'dtype': rasterio.ubyte},
+    # 'proxi_eau_fast': {'attrib_column': None, 'nan': -1, 'dtype': rasterio.ubyte},
     'text': {'nan': -1},
 }
 
