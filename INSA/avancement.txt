@@ -1,0 +1,18 @@
+Étapes de l'avancement du projet INSA 2025 Gentiana
+
+Terminé :
+Mise en place de l'environnement virtuel (IDE, libraries)
+Prise en main de Streamlit
+Prise en main de Streamlit-Folium
+Prototypage de l'UI : carte et filtres
+Problème : Chargement de la carte (résolu)
+
+En cours :
+Problème : Chargement des données trop long (partiellement résolu)
+Ajout d'interactivité pour permettre l'annotation et la visualisation des métadonnées
+Prise en main et comparaison des métriques d'atypicité déjà implémentées dans les modèles fournis
+Problème : Réutilisation du code fourni, dépendances manquantes (en cours de résolution)
+
+À venir : 
+Ajout de filtres supplémentaires
+Ajout d'un code couleur représentant l'atypicité
