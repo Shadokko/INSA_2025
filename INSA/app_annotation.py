@@ -26,7 +26,7 @@ def add_markers(df, m, n=0):
             # rank = df.iloc[[i]]["rank_ground_truth"]
             folium.Marker(
                 location = df.iloc[[i]][['Latitude', 'Longitude']],
-        	popup = df.iloc[[i]]["nom flore"]).add_to(m)#,
+        	popup = df.iloc[[i]]["Nom flore"]).add_to(m)#,
             # color = "red",
          #        tooltip = str(rank),#"cliquez pour afficher",
          #        icon = folium.Icon(color = "blue", 
@@ -50,7 +50,9 @@ def make_map(f_data):
 
 #st.set_page_config(layout="wide")
 
-DATA_PATH = "result_export.csv"
+
+# TODO: renvoyer les chemins d'accès, paramètres, constants, etc. dans un fichier de config séparé (en .yml)
+DATA_PATH = r"experiments\rerun_2025\result_export.csv"
 GRENOBLE = (45.193620, 5.720363)
 
 st.title("Outil d'annotation")
