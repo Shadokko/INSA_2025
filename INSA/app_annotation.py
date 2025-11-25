@@ -2,12 +2,16 @@ import streamlit as st
 import folium
 from streamlit_folium import st_folium
 import pandas as pd
+import os
+
 # import datetime
 # import branca.colormap as cm
 
 
 st.set_page_config(layout="wide")
 
+# TODO : fix relative path
+# TODO: renvoyer les chemins d'accès, paramètres, constants, etc. dans un fichier de config séparé (en .yml)
 DATA_PATH = "../../result_export.csv"
 GRENOBLE = (45.110600, 5.433000)
 #color_map = cm.LinearColormap(["green", "yellow", "red"],vmin=min(data["rank_ground_truth"]), vmax=max(data["rank_ground_truth"]))
@@ -65,7 +69,6 @@ def add_markers(df, where, N=0):
                                    prefix = "fa")
                 )
             marker.add_to(where)
-
 
 def make_map(f_data, center, N, toggle_clusters):
     map_ = folium.Map(location=(45.0106, 9.4330), zoom_start=8)    
@@ -136,6 +139,7 @@ with col2:
         st.write(f"coordonnées : ({data.at[id_obs, 'Latitude']}, {data.at[id_obs, 'Longitude']}")
 
 
+# TODO : lier le tableau à la carte pour sélectionner un point
 if type(st.session_state.filtered_data) != type(None):
     st.subheader(f"Données brutes (n = {len(st.session_state.filtered_data)})")
     select_row = st.dataframe(st.session_state.filtered_data.head(st.session_state.filters["N"]), 
