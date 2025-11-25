@@ -1,8 +1,13 @@
+from pydoc import doc
 import streamlit as st
 import folium
 from streamlit_folium import st_folium
 import pandas as pd
 import os
+from pathlib2 import Path
+from ruamel.yaml import YAML
+
+
 
 # import datetime
 # import branca.colormap as cm
@@ -12,7 +17,16 @@ st.set_page_config(layout="wide")
 
 # TODO : fix relative path
 # TODO: renvoyer les chemins d'accès, paramètres, constants, etc. dans un fichier de config séparé (en .yml)
-DATA_PATH = "../../result_export.csv"
+path2param = Path(__file__).parent / "params.yml"
+
+print(f"Loading parameter file: {path2param.resolve()}")
+yaml=YAML(typ='safe')   # default, if not specfied, is 'rt' (round-trip)
+params = yaml.load(path2param)
+DATA_PATH = params['DATA_PATH']
+# DATA_PATH = "../../result_export.csv"
+print(f"Data path: {Path(DATA_PATH).resolve()}\n")
+
+
 GRENOBLE = (45.110600, 5.433000)
 #color_map = cm.LinearColormap(["green", "yellow", "red"],vmin=min(data["rank_ground_truth"]), vmax=max(data["rank_ground_truth"]))
         
@@ -88,6 +102,7 @@ st.title("Outil d'annotation")
 col1, col2 = st.columns([3, 1], border= True)
 
 with st.sidebar.status("Chargement des données...") as status:
+    
     data, observateurs, especes = load_data(DATA_PATH)
     status.update(label='Données à jour', state = "complete")
 
