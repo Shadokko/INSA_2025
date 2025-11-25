@@ -33,6 +33,7 @@ GRENOBLE = (45.110600, 5.433000)
 
 @st.cache_data
 def load_data(filename):
+    # TODO: would be nice to have either a drag'n'drop option to upload a new data file, or a file selector with a browser
     chunk_size = 10_000
     chunks = []
     for chunk in pd.read_csv(filename, sep=";", usecols=["PrenomNom", "Latitude", "Longitude", "rank_ground_truth", "Nom flore", "Date_Releve"],chunksize=chunk_size):
@@ -63,10 +64,17 @@ def filter_data(data, filters):
         else :
             filtered_data = filtered_data.loc[pd.to_datetime(filtered_data["Date_Releve"],format='%Y-%m-%d').dt.date >= filters["Debut"]]
             filtered_data = filtered_data.loc[pd.to_datetime(filtered_data["Date_Releve"],format='%Y-%m-%d').dt.date <= filters["Fin"]]
+    
+    # TODO: define the "ATYPICITE" parameter: 
+    #       its computation can be put in a dedicated function or class in the toolbox, and can be parametrizable)
+    #       a fist intention approach is to use the rank of ground truth in prediction, with some thresholds
+    # TODO: implement the "ATYPICITE" filter. Would be better to use an interval instead of a single ATYPICITE value.
+    
     return filtered_data
 
 
 def add_markers(df, where, N=0):
+    # TODO: it would be cool to color markers according to atypicité and/or rank to make things more visual.
     if type(df) != type(None):
         if N == 0:
             N = len(df)
@@ -133,6 +141,8 @@ with col1:
     
     sub_col1.subheader("Carte des observations")
     if type(st.session_state.filtered_data) != type(None):
+        # FIXME: the app lags when N is too high. WOuld need to set a maximum value and/or a warning.
+        # TODO: a smaller step would be better.
         st.session_state.filters["N"] = sub_col2.slider("Combien d'observations afficher ?", min_value=0, max_value=len(st.session_state.filtered_data), value=50, step=50)
     else :
         st.session_state.filters["N"] = 50
