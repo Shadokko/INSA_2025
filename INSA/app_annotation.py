@@ -1,8 +1,13 @@
+from pydoc import doc
 import streamlit as st
 import folium
 from streamlit_folium import st_folium
 import pandas as pd
 import os
+from pathlib2 import Path
+from ruamel.yaml import YAML
+
+
 
 # import datetime
 # import branca.colormap as cm
@@ -12,7 +17,16 @@ st.set_page_config(layout="wide")
 
 # TODO : fix relative path
 # TODO: renvoyer les chemins d'accès, paramètres, constants, etc. dans un fichier de config séparé (en .yml)
-DATA_PATH = "../../result_export.csv"
+path2param = Path(__file__).parent / "params.yml"
+
+print(f"Loading parameter file: {path2param.resolve()}")
+yaml=YAML(typ='safe')   # default, if not specfied, is 'rt' (round-trip)
+params = yaml.load(path2param)
+DATA_PATH = params['DATA_PATH']
+# DATA_PATH = "../../result_export.csv"
+print(f"Data path: {Path(DATA_PATH).resolve()}\n")
+
+
 GRENOBLE = (45.110600, 5.433000)
 #color_map = cm.LinearColormap(["green", "yellow", "red"],vmin=min(data["rank_ground_truth"]), vmax=max(data["rank_ground_truth"]))
         
@@ -38,8 +52,10 @@ def load_data(filename):
     especes : list
         liste des espcèces présentes dans les données, sans répétition
     """
+    # TODO: would be nice to have either a drag'n'drop option to upload a new data file, or a file selector with a browser
     chunk_size = 10_000 # les données seront chargées par paquets pour aller plus vite
     chunks = [] # liste qui contiendra tous les paquets de données
+
     for chunk in pd.read_csv(filename, sep=";", usecols=["PrenomNom", "Latitude", "Longitude", "rank_ground_truth", "Nom flore", "Date_Releve"],chunksize=chunk_size):
         chunks.append(chunk)
     data = pd.concat(chunks, axis=0) # on fusionne tous les paquets pour obtenir les données complètes
@@ -108,6 +124,8 @@ def add_markers(df, group, N=0):
     filtered_data : pandas data frame
         tableau contenant les données filtrées
     """  
+    # TODO: it would be cool to color markers according to atypicité and/or rank to make things more visual.
+    
     if type(df) != type(None): #si le dataframe n'est pas vide
         if N == 0: # si le nombre d'observations à afficher est celui par défaut
             N = len(df) # alors on affiche toutes les données
@@ -167,6 +185,7 @@ col_carte, col_data = st.columns([3, 1], border= True) # separation de l'afficha
 ###################################################
 # Chargement des donnees
 with st.sidebar.status("Chargement des données...") as status:
+    
     data, observateurs, especes = load_data(DATA_PATH)
     status.update(label='Données à jour', state = "complete")
 
@@ -192,7 +211,10 @@ with st.sidebar.form(key="filtres2", ):
             st.session_state.filtered_data = filter_data(data, st.session_state.filters)
             status.update(label='Données filtrées', state = "complete")
             st.text(st.session_state.filtered_data)
-
+    # TODO: define the "ATYPICITE" parameter: 
+    #       its computation can be put in a dedicated function or class in the toolbox, and can be parametrizable)
+    #       a fist intention approach is to use the rank of ground truth in prediction, with some thresholds
+    # TODO: implement the "ATYPICITE" filter. Would be better to use an interval instead of a single ATYPICITE value.
 
 ###################################################
 # Affichage de la carte
@@ -203,7 +225,10 @@ with col_carte:
     
     sub_col_carte_1.subheader("Carte des observations")
     if type(st.session_state.filtered_data) != type(None): # si les donnees ont ete filtrees par l'utilisateur
-        st.session_state.filters["N"] = sub_col_carte_2.slider("Combien d'observations afficher ?", min_value=0, max_value=len(st.session_state.filtered_data), value=50, step=50)
+        # FIXME: the app lags when N is too high. Would need to set a maximum value and/or a warning.
+        # TODO: a smaller step would be better.
+        # FIXME: make the map load faster
+        st.session_state.filters["N"] = sub_col_carte_2.slider("Combien d'observations afficher ?", min_value=1, max_value=100, value=30, step=1)
     else :
         st.session_state.filters["N"] = 50
         
