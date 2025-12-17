@@ -30,9 +30,7 @@ print(f"Data path: {Path(DATA_PATH).resolve()}\n")
 
 
 GRENOBLE = (45.110600, 5.433000)
-colormap = cm.LinearColormap(["green", "blue", "purple"], vmin=0, vmax=10, caption="échelle d'atypicité")
-
-
+colormap = cm.LinearColormap(["green", "yellow", "red", "purple"], vmin=0, vmax=10, caption="échelle d'atypicité")
 
 @st.cache_data
 def compute_atypicity(data, method):
@@ -129,12 +127,14 @@ def filter_data(data, filters):
         else :
             filtered_data = filtered_data.loc[pd.to_datetime(filtered_data["Date_Releve"],format='%Y-%m-%d').dt.date >= filters["Debut"]] # sinon, on garde uniquement les données ultérieures à la date de début choisie
             filtered_data = filtered_data.loc[pd.to_datetime(filtered_data["Date_Releve"],format='%Y-%m-%d').dt.date <= filters["Fin"]] # puis, on garde uniquement les données précédant la date de début choisie
+        
+        filtered_data["Atypicité"] = compute_atypicity(filtered_data, st.session_state.filters["Méthode"])
         filtered_data = filtered_data.loc[filtered_data["Atypicité"]<st.session_state.filters["hi_Score"]]
         filtered_data = filtered_data.loc[filtered_data["Atypicité"]>st.session_state.filters["lo_Score"]]
     return filtered_data
 
 
-def add_markers(df, group, N=0):
+def add_markers(df, colormap, group, N=0):
     """
     Ajoute les N premiers marqueurs sur la carte, parmi les données filtrées
 
@@ -142,6 +142,9 @@ def add_markers(df, group, N=0):
     ----------
     df : pandas data frame
         tableau contenant les données filtrées
+        
+    colormap : branca colormap
+        échelle de couleur du vert au violet pour représenter l'atypicité
         
     group : folium.FeatureGroup()
         groupe de marqueurs
@@ -154,7 +157,6 @@ def add_markers(df, group, N=0):
     filtered_data : pandas data frame
         tableau contenant les données filtrées
     """  
-    # TODO: it would be cool to color markers according to atypicité and/or rank to make things more visual.
     
     if type(df) != type(None): #si le dataframe n'est pas vide
         if N == 0: # si le nombre d'observations à afficher est celui par défaut
@@ -163,27 +165,18 @@ def add_markers(df, group, N=0):
             N = min(N, len(df)) # sinon, on affiche les N premières observations filtrées, ou toutes s'il y en a moins de N
             
         for i in range(N): # on affiche les N marqueurs
-            # marker = folium.Marker(
-            #     location = list(df.iloc[i].loc[['Latitude', 'Longitude']]),
-            #     popup = df.index[i],
-            #     tooltip = "cliquez pour afficher",
-            #     icon = folium.Icon(color = colormap(0), 
-            #                        icon = "leaf", 
-            #                        prefix = "fa")
-            #     )
-            marker = folium.CircleMarker(
+            folium.CircleMarker(
                 location=list(df.iloc[i].loc[['Latitude', 'Longitude']]),
                 radius=7,
-                color="red",
+                color="black",
                 fill=True,
-                fill_color="green",
-                fill_opacity=0.8,
+                fill_color=colormap(float(df.iloc[i].loc[['Atypicité']].iloc[0])),
+                fill_opacity=1,
                 popup=df.index[i]
-                )
-            marker.add_to(group)
+                ).add_to(group)
 
 
-def make_map(f_data, center, N, toggle_clusters):
+def make_map(f_data, colormap, center, N, toggle_clusters):
     """
     Ajoute les N premiers marqueurs sur la carte, parmi les données filtrées
 
@@ -191,6 +184,9 @@ def make_map(f_data, center, N, toggle_clusters):
     ----------
     f_data : pandas data frame
         tableau contenant les données filtrées
+        
+    colormap : branca colormap
+        échelle de couleur du vert au violet pour représenter l'atypicité
         
     center : tuple de float
         coordonnées du centre de la carte
@@ -210,12 +206,11 @@ def make_map(f_data, center, N, toggle_clusters):
    
     if toggle_clusters : # affichage groupé des observations
         marker_cluster = folium.plugins.MarkerCluster().add_to(map_)
-        group_1 = folium.FeatureGroup("surbrillance").add_to(marker_cluster)
-        group_2 = folium.FeatureGroup("autres").add_to(marker_cluster)
+        group_1 = folium.FeatureGroup("observations").add_to(marker_cluster)
     else :
-        group_1 = folium.FeatureGroup("surbrillance").add_to(map_)
-        group_2 = folium.FeatureGroup("autres").add_to(map_)
-    add_markers(f_data, group_2, N=N)
+        group_1 = folium.FeatureGroup("observations").add_to(map_)
+    add_markers(f_data, colormap, group_1, N=N)
+    map_.get_root().add_child(colormap)
     return st_folium(map_, width=2000, height=500)
 
 
@@ -244,8 +239,10 @@ with st.sidebar.form(key="filtres2", ):
     st.session_state.filters["Nom flore"] = st.multiselect("Espèce", especes)
     st.session_state.filters["Debut"] = st.date_input("Du", value = "1990-01-01", min_value="1990-01-01", max_value="today", format="YYYY-MM-DD")
     st.session_state.filters["Fin"] = st.date_input("Jusqu'au", value = "today", min_value="1990-01-01", max_value="today", format="YYYY-MM-DD")
-    st.session_state.filters["lo_Score"], st.session_state.filters["hi_Score"] = st.select_slider("Atypicité", options=[i for i in range(11)], value=(0,10))
-
+    st.session_state.filters["lo_Score"], st.session_state.filters["hi_Score"] = st.select_slider("Atypicité", options=[i for i in np.arange(0, 10.5, 0.5)], value=(0,10))
+    st.markdown('''0 :green[----------]:yellow[----------]:orange[----------]:red[----------]:violet[----------] 10''') # légende
+    st.session_state.filters["Méthode"] = st.radio("Méthode de calcul de l'atypicité :", ["rank_ground_truth"])
+    
     st.session_state.filtered = st.form_submit_button(label="Enregistrer") # validation des filtres
     if st.session_state.filtered : #creation d'un subset des donnees filtrees
         with st.sidebar.status("Selection des données...") as status:
@@ -268,15 +265,18 @@ with col_carte:
         
     # FIXME: make the map load faster
     st_data = make_map(st.session_state.filtered_data, 
+                       colormap,
                        GRENOBLE, 
                        st.session_state.filters["N"],
                        clusters)
-
+    
 ###################################################
 # Affichage des metadonnees
 with col_data:
     st.subheader("Metadonnées")
-    if type(st_data['last_object_clicked_popup']) == type(None): # si aucune observation n'a ete selectionnee
+    if type(st.session_state.filtered_data) == type(None):
+        st.write("Veuillez filtrer les données")
+    elif type(st_data['last_object_clicked_popup']) == type(None): # si aucune observation n'a ete selectionnee
         st.write("Veuillez cliquer sur une observation pour afficher les données associées")
     else : 
         id_obs = int(st_data['last_object_clicked_popup'])
@@ -284,7 +284,9 @@ with col_data:
         st.write(f"espèce : {data.at[id_obs, 'Nom flore']}")
         st.write(f"observateur : {data.at[id_obs, 'PrenomNom']}")
         st.write(f"coordonnées : ({data.at[id_obs, 'Latitude']}, {data.at[id_obs, 'Longitude']}")
-
+        st.write(f"atypicité : {data.at[id_obs, 'Atypicité']}")
+        # index_in_filtered_data = int(st.session_state.filtered_data["ID"].to_list().index(id_obs))
+        # st.write(f"ID in fd : {index_in_filtered_data}")
 
 ###################################################
 # Affichage d'un tableau de donnees supplementaire
@@ -298,6 +300,7 @@ if type(st.session_state.filtered_data) != type(None):
         
 else :
     st.subheader("Données brutes")
+    st.write("Veuillez filtrer les données")
 
 
 

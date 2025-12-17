@@ -9,14 +9,16 @@ Problème : Chargement de la carte (résolu)
 Ajout d'interactivité pour permettre l'annotation et la visualisation des métadonnées
 Ajout d'une vue groupée/synthétique des observations
 Ajout d'un filtre sur l'atypicité
+Ajout d'un code couleur représentant l'atypicité
 
 En cours :
-Ajout d'un code couleur représentant l'atypicité
+Implement a drag'n'drop option to upload a new data file, or a file selector with a browser
+Lier le tableau de données affiché à la carte et aux métadonnées affichées
 Problème : Chargement des données trop long (partiellement résolu)
 Prise en main et comparaison des métriques d'atypicité déjà  implémentées dans les modèles fournis
 Problème : Réutilisation du code fourni, dépendances manquantes (en cours de résolution)
-Ajout d'un code couleur représentant les données déjà vérifiées
 
 À venir : 
 Ajout des annotations
-
+Renvoyer les chemins d'accès, paramètres, constants, etc. dans un fichier de config séparé (en .yml)
+Ajout d'un code couleur représentant les données déjà vérifiées
