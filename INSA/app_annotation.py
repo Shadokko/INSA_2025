@@ -6,11 +6,13 @@ import pandas as pd
 import os
 from pathlib2 import Path
 from ruamel.yaml import YAML
+import numpy as np
 
 
 
 # import datetime
-# import branca.colormap as cm
+import branca
+import branca.colormap as cm
 
 
 st.set_page_config(layout="wide")
@@ -28,8 +30,34 @@ print(f"Data path: {Path(DATA_PATH).resolve()}\n")
 
 
 GRENOBLE = (45.110600, 5.433000)
-#color_map = cm.LinearColormap(["green", "yellow", "red"],vmin=min(data["rank_ground_truth"]), vmax=max(data["rank_ground_truth"]))
+colormap = cm.LinearColormap(["green", "blue", "purple"], vmin=0, vmax=10, caption="échelle d'atypicité")
+
+
+
+@st.cache_data
+def compute_atypicity(data, method):
+    """
+    Ajoute une colonne "score d'atypicité" aux données
+
+    Parameters
+    ----------
+    data : pandas data frame
+        tableau contenant les données
         
+    method : string
+        méthode utilisée pour calculer le score 
+        ["rank_ground_truth"]
+        
+    Returns
+    -------
+    filtered_data : pandas data frame
+        tableau contenant les données filtrées
+    """  
+    
+    match method:
+        case "rank_ground_truth":
+            return 10*(data["rank_ground_truth"]-np.min(data["rank_ground_truth"]))/(np.max(data["rank_ground_truth"])-np.min(data["rank_ground_truth"]))
+
 
 @st.cache_data
 def load_data(filename):
@@ -60,6 +88,7 @@ def load_data(filename):
         chunks.append(chunk)
     data = pd.concat(chunks, axis=0) # on fusionne tous les paquets pour obtenir les données complètes
     data["ID"] = data.index # on rajoute une colonne ID qui nous permettra d'identifier chaque ligne de façon unique
+    data["Atypicité"] = compute_atypicity(data, "rank_ground_truth")
     
     observateurs = list(data["PrenomNom"].unique())
     especes = list(data["Nom flore"].unique())
@@ -95,12 +124,13 @@ def filter_data(data, filters):
             filtered_data = filtered_data.loc[[element in filters["PrenomNom"] for element in filtered_data["PrenomNom"]]] # on filtre par rapport à l'observateur
         if len(st.session_state.filters["Nom flore"]) != 0: # si il y a un filtre sur l'espèce
             filtered_data = filtered_data.loc[[element in filters["Nom flore"] for element in filtered_data["Nom flore"]]] # on filtre par rapport à l'espèce
-                             
         if st.session_state.filters["Debut"] > st.session_state.filters["Fin"] : # si le dates choisies ne sont pas dans le bon ordre
             st.error("Veuillez choisir une date de début antérieure à la date de fin.") # erreur affichée
         else :
             filtered_data = filtered_data.loc[pd.to_datetime(filtered_data["Date_Releve"],format='%Y-%m-%d').dt.date >= filters["Debut"]] # sinon, on garde uniquement les données ultérieures à la date de début choisie
             filtered_data = filtered_data.loc[pd.to_datetime(filtered_data["Date_Releve"],format='%Y-%m-%d').dt.date <= filters["Fin"]] # puis, on garde uniquement les données précédant la date de début choisie
+        filtered_data = filtered_data.loc[filtered_data["Atypicité"]<st.session_state.filters["hi_Score"]]
+        filtered_data = filtered_data.loc[filtered_data["Atypicité"]>st.session_state.filters["lo_Score"]]
     return filtered_data
 
 
@@ -133,15 +163,25 @@ def add_markers(df, group, N=0):
             N = min(N, len(df)) # sinon, on affiche les N premières observations filtrées, ou toutes s'il y en a moins de N
             
         for i in range(N): # on affiche les N marqueurs
-            marker = folium.Marker(
-                location = df.iloc[i].loc[['Latitude', 'Longitude']],
-                popup = df.index[i],
-                tooltip = "cliquez pour afficher",
-                icon = folium.Icon(color = "blue", 
-                                   icon = "leaf", 
-                                   prefix = "fa")
+            # marker = folium.Marker(
+            #     location = list(df.iloc[i].loc[['Latitude', 'Longitude']]),
+            #     popup = df.index[i],
+            #     tooltip = "cliquez pour afficher",
+            #     icon = folium.Icon(color = colormap(0), 
+            #                        icon = "leaf", 
+            #                        prefix = "fa")
+            #     )
+            marker = folium.CircleMarker(
+                location=list(df.iloc[i].loc[['Latitude', 'Longitude']]),
+                radius=7,
+                color="red",
+                fill=True,
+                fill_color="green",
+                fill_opacity=0.8,
+                popup=df.index[i]
                 )
             marker.add_to(group)
+
 
 def make_map(f_data, center, N, toggle_clusters):
     """
@@ -167,6 +207,7 @@ def make_map(f_data, center, N, toggle_clusters):
         carte
     """  
     map_ = folium.Map(location=(45.0106, 9.4330), zoom_start=8) #affiche la carte centrée sur Grenoble
+   
     if toggle_clusters : # affichage groupé des observations
         marker_cluster = folium.plugins.MarkerCluster().add_to(map_)
         group_1 = folium.FeatureGroup("surbrillance").add_to(marker_cluster)
@@ -174,7 +215,7 @@ def make_map(f_data, center, N, toggle_clusters):
     else :
         group_1 = folium.FeatureGroup("surbrillance").add_to(map_)
         group_2 = folium.FeatureGroup("autres").add_to(map_)
-    add_markers(f_data, group=group_2, N=N)
+    add_markers(f_data, group_2, N=N)
     return st_folium(map_, width=2000, height=500)
 
 
@@ -203,7 +244,7 @@ with st.sidebar.form(key="filtres2", ):
     st.session_state.filters["Nom flore"] = st.multiselect("Espèce", especes)
     st.session_state.filters["Debut"] = st.date_input("Du", value = "1990-01-01", min_value="1990-01-01", max_value="today", format="YYYY-MM-DD")
     st.session_state.filters["Fin"] = st.date_input("Jusqu'au", value = "today", min_value="1990-01-01", max_value="today", format="YYYY-MM-DD")
-    st.session_state.filters["A_Score"] = st.slider("Atypicité", min_value=0, max_value=10, value=0, step=1)
+    st.session_state.filters["lo_Score"], st.session_state.filters["hi_Score"] = st.select_slider("Atypicité", options=[i for i in range(11)], value=(0,10))
 
     st.session_state.filtered = st.form_submit_button(label="Enregistrer") # validation des filtres
     if st.session_state.filtered : #creation d'un subset des donnees filtrees
@@ -211,10 +252,6 @@ with st.sidebar.form(key="filtres2", ):
             st.session_state.filtered_data = filter_data(data, st.session_state.filters)
             status.update(label='Données filtrées', state = "complete")
             st.text(st.session_state.filtered_data)
-    # TODO: define the "ATYPICITE" parameter: 
-    #       its computation can be put in a dedicated function or class in the toolbox, and can be parametrizable)
-    #       a fist intention approach is to use the rank of ground truth in prediction, with some thresholds
-    # TODO: implement the "ATYPICITE" filter. Would be better to use an interval instead of a single ATYPICITE value.
 
 ###################################################
 # Affichage de la carte
@@ -225,13 +262,11 @@ with col_carte:
     
     sub_col_carte_1.subheader("Carte des observations")
     if type(st.session_state.filtered_data) != type(None): # si les donnees ont ete filtrees par l'utilisateur
-        # FIXME: the app lags when N is too high. Would need to set a maximum value and/or a warning.
-        # TODO: a smaller step would be better.
-        # FIXME: make the map load faster
         st.session_state.filters["N"] = sub_col_carte_2.slider("Combien d'observations afficher ?", min_value=1, max_value=100, value=30, step=1)
     else :
         st.session_state.filters["N"] = 50
         
+    # FIXME: make the map load faster
     st_data = make_map(st.session_state.filtered_data, 
                        GRENOBLE, 
                        st.session_state.filters["N"],
@@ -260,8 +295,6 @@ if type(st.session_state.filtered_data) != type(None):
                  hide_index=True, 
                  selection_mode="single-row",
                  on_select="rerun")
-    # st.session_state.filtered_data.iloc[select_row.selection["rows"][0]]
-    # if type(st_data['last_object_clicked_popup']) != type(None):
         
 else :
     st.subheader("Données brutes")
