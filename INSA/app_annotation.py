@@ -6,12 +6,7 @@ import pandas as pd
 import os
 from pathlib2 import Path
 from ruamel.yaml import YAML
-import numpy as np
-
-
-
-# import datetime
-import branca
+import numpy as np 
 import branca.colormap as cm
 
 
@@ -29,7 +24,7 @@ DATA_PATH = params['DATA_PATH']
 print(f"Data path: {Path(DATA_PATH).resolve()}\n")
 
 
-GRENOBLE = (45.110600, 5.433000)
+GRENOBLE = (45.0106, 9.4330)
 colormap = cm.LinearColormap(["green", "yellow", "red", "purple"], vmin=0, vmax=10, caption="échelle d'atypicité")
 
 @st.cache_data
@@ -163,20 +158,31 @@ def add_markers(df, colormap, group, N=0):
             N = len(df) # alors on affiche toutes les données
         else:
             N = min(N, len(df)) # sinon, on affiche les N premières observations filtrées, ou toutes s'il y en a moins de N
-            
-        for i in range(N): # on affiche les N marqueurs
+        
+        if N == 1:
             folium.CircleMarker(
-                location=list(df.iloc[i].loc[['Latitude', 'Longitude']]),
+                location=list(df.loc[['Latitude', 'Longitude']]),
                 radius=7,
                 color="black",
                 fill=True,
-                fill_color=colormap(float(df.iloc[i].loc[['Atypicité']].iloc[0])),
+                fill_color=colormap(float(df.loc[['Atypicité']].iloc[0])),
                 fill_opacity=1,
-                popup=df.index[i]
+                popup=df.loc[['ID']].iloc[0]
                 ).add_to(group)
+        else : 
+            for i in range(N): # on affiche les N marqueurs
+                folium.CircleMarker(
+                    location=list(df.iloc[i].loc[['Latitude', 'Longitude']]),
+                    radius=7,
+                    color="black",
+                    fill=True,
+                    fill_color=colormap(float(df.iloc[i].loc[['Atypicité']].iloc[0])),
+                    fill_opacity=1,
+                    popup=df.index[i]
+                    ).add_to(group)
 
 
-def make_map(f_data, colormap, center, N, toggle_clusters):
+def make_map(f_data, colormap, center, width, height, N, toggle_clusters, key):
     """
     Ajoute les N premiers marqueurs sur la carte, parmi les données filtrées
 
@@ -202,7 +208,7 @@ def make_map(f_data, colormap, center, N, toggle_clusters):
     st_folium
         carte
     """  
-    map_ = folium.Map(location=(45.0106, 9.4330), zoom_start=8) #affiche la carte centrée sur Grenoble
+    map_ = folium.Map(location=center, zoom_start=8) #affiche la carte centrée sur Grenoble
    
     if toggle_clusters : # affichage groupé des observations
         marker_cluster = folium.plugins.MarkerCluster().add_to(map_)
@@ -210,99 +216,136 @@ def make_map(f_data, colormap, center, N, toggle_clusters):
     else :
         group_1 = folium.FeatureGroup("observations").add_to(map_)
     add_markers(f_data, colormap, group_1, N=N)
-    map_.get_root().add_child(colormap)
-    return st_folium(map_, width=2000, height=500)
+
+    return st_folium(map_, width=width, height=height, key=key)
 
 
 st.title("Outil d'annotation")
-col_carte, col_data = st.columns([3, 1], border= True) # separation de l'affichage en 2 : une partie pour la carte et une pour les metadonnees
-
+tab1, tab2 = st.tabs(["Visualisation", "Annotation"])
 
 ###################################################
 # Chargement des donnees
-with st.sidebar.status("Chargement des données...") as status:
-    
-    data, observateurs, especes = load_data(DATA_PATH)
-    status.update(label='Données à jour', state = "complete")
+# msg = st.toast("Chargement des données...")
+data, observateurs, especes = load_data(DATA_PATH)
+# msg.toast("Données à jour !", icon=":material/check:")
 
 if "filtered" not in st.session_state:
     st.session_state.filtered = False
     st.session_state.filtered_data = None
+    st.session_state.id_obs = None
 
-
+with tab1:
+    col_carte, col_data = st.columns([3, 1], border= True) # separation de l'affichage en 2 : une partie pour la carte et une pour les metadonnees
 ###################################################
 # Selection des filtres
-st.sidebar.subheader("Filtres") # menu de selection des filtres
-with st.sidebar.form(key="filtres2", ):
-    st.session_state.filters = dict()
-    st.session_state.filters["PrenomNom"] = st.multiselect("Nom de l'observateur", observateurs)
-    st.session_state.filters["Nom flore"] = st.multiselect("Espèce", especes)
-    st.session_state.filters["Debut"] = st.date_input("Du", value = "1990-01-01", min_value="1990-01-01", max_value="today", format="YYYY-MM-DD")
-    st.session_state.filters["Fin"] = st.date_input("Jusqu'au", value = "today", min_value="1990-01-01", max_value="today", format="YYYY-MM-DD")
-    st.session_state.filters["lo_Score"], st.session_state.filters["hi_Score"] = st.select_slider("Atypicité", options=[i for i in np.arange(0, 10.5, 0.5)], value=(0,10))
-    st.markdown('''0 :green[----------]:yellow[----------]:orange[----------]:red[----------]:violet[----------] 10''') # légende
-    st.session_state.filters["Méthode"] = st.radio("Méthode de calcul de l'atypicité :", ["rank_ground_truth"])
-    
-    st.session_state.filtered = st.form_submit_button(label="Enregistrer") # validation des filtres
-    if st.session_state.filtered : #creation d'un subset des donnees filtrees
-        with st.sidebar.status("Selection des données...") as status:
-            st.session_state.filtered_data = filter_data(data, st.session_state.filters)
-            status.update(label='Données filtrées', state = "complete")
-            st.text(st.session_state.filtered_data)
-
+    st.sidebar.subheader("Filtres") # menu de selection des filtres
+    with st.sidebar.form(key="filtres"):
+        st.session_state.filters = dict()
+        st.session_state.filters["PrenomNom"] = st.multiselect("Nom de l'observateur", observateurs)
+        st.session_state.filters["Nom flore"] = st.multiselect("Espèce", especes)
+        st.session_state.filters["Debut"] = st.date_input("Du", value = "1990-01-01", min_value="1990-01-01", max_value="today", format="YYYY-MM-DD")
+        st.session_state.filters["Fin"] = st.date_input("Jusqu'au", value = "today", min_value="1990-01-01", max_value="today", format="YYYY-MM-DD")
+        st.session_state.filters["lo_Score"], st.session_state.filters["hi_Score"] = st.select_slider("Atypicité", options=[i for i in np.arange(0, 10.5, 0.5)], value=(0,10))
+        st.markdown('''0 :green[----------]:yellow[----------]:orange[----------]:red[----------]:violet[----------] 10''') # légende
+        st.session_state.filters["Méthode"] = st.radio("Méthode de calcul de l'atypicité :", ["rank_ground_truth"])
+        
+        st.session_state.filtered = st.form_submit_button(label="Enregistrer") # validation des filtres
+        if st.session_state.filtered : #creation d'un subset des donnees filtrees
+            with st.sidebar.status("Selection des données...") as status:
+                st.session_state.filtered_data = filter_data(data, st.session_state.filters)
+                status.update(label='Données filtrées', state = "complete")
+                st.text(st.session_state.filtered_data)
+                
+    clusters = st.sidebar.toggle("Affichage groupé")
 ###################################################
 # Affichage de la carte
-clusters = st.sidebar.toggle("Affichage groupé")
-
-with col_carte:
-    sub_col_carte_1, sub_col_carte_2 = st.columns(2)
     
-    sub_col_carte_1.subheader("Carte des observations")
-    if type(st.session_state.filtered_data) != type(None): # si les donnees ont ete filtrees par l'utilisateur
-        st.session_state.filters["N"] = sub_col_carte_2.slider("Combien d'observations afficher ?", min_value=1, max_value=100, value=30, step=1)
-    else :
-        st.session_state.filters["N"] = 50
+    with col_carte:
+        sub_col_carte_1, sub_col_carte_2 = st.columns(2)
         
-    # FIXME: make the map load faster
-    st_data = make_map(st.session_state.filtered_data, 
-                       colormap,
-                       GRENOBLE, 
-                       st.session_state.filters["N"],
-                       clusters)
+        sub_col_carte_1.subheader("Carte des observations")
+        if type(st.session_state.filtered_data) != type(None): # si les donnees ont ete filtrees par l'utilisateur
+            st.session_state.filters["N"] = sub_col_carte_2.slider("Combien d'observations afficher ?", min_value=1, max_value=100, value=30, step=1)
+        else :
+            st.session_state.filters["N"] = 50
+            
+        # FIXME: make the map load faster
+        st_data = make_map(st.session_state.filtered_data, 
+                           colormap,
+                           GRENOBLE, 
+                           2000,
+                           500,
+                           st.session_state.filters["N"],
+                           clusters,
+                           key=1)
     
 ###################################################
 # Affichage des metadonnees
-with col_data:
-    st.subheader("Metadonnées")
-    if type(st.session_state.filtered_data) == type(None):
-        st.write("Veuillez filtrer les données")
-    elif type(st_data['last_object_clicked_popup']) == type(None): # si aucune observation n'a ete selectionnee
-        st.write("Veuillez cliquer sur une observation pour afficher les données associées")
-    else : 
-        id_obs = int(st_data['last_object_clicked_popup'])
-        st.write(f"ID : {id_obs}")
-        st.write(f"espèce : {data.at[id_obs, 'Nom flore']}")
-        st.write(f"observateur : {data.at[id_obs, 'PrenomNom']}")
-        st.write(f"coordonnées : ({data.at[id_obs, 'Latitude']}, {data.at[id_obs, 'Longitude']}")
-        st.write(f"atypicité : {data.at[id_obs, 'Atypicité']}")
-        # index_in_filtered_data = int(st.session_state.filtered_data["ID"].to_list().index(id_obs))
-        # st.write(f"ID in fd : {index_in_filtered_data}")
+    with col_data:
+        st.subheader("Metadonnées")
+        if type(st.session_state.filtered_data) == type(None):
+            st.write("Veuillez filtrer les données")
+        elif type(st_data['last_object_clicked_popup']) == type(None): # si aucune observation n'a ete selectionnee
+            st.write("Veuillez cliquer sur une observation pour afficher les données associées")
+        else : 
+            st.session_state.id_obs = int(st_data['last_object_clicked_popup'])
+            st.write(f"ID : {st.session_state.id_obs}")
+            st.write(f"espèce : {data.at[st.session_state.id_obs, 'Nom flore']}")
+            st.write(f"observateur : {data.at[st.session_state.id_obs, 'PrenomNom']}")
+            st.write(f"coordonnées : ({data.at[st.session_state.id_obs, 'Latitude']}, {data.at[st.session_state.id_obs, 'Longitude']}")
+            st.write(f"atypicité : {round(data.at[st.session_state.id_obs, 'Atypicité'], 3)}")
 
 ###################################################
 # Affichage d'un tableau de donnees supplementaire
 # TODO : lier le tableau à la carte et aux metadonnees pour sélectionner un point
-if type(st.session_state.filtered_data) != type(None):
-    st.subheader(f"Données brutes (n = {len(st.session_state.filtered_data)})")
-    select_row = st.dataframe(st.session_state.filtered_data.head(st.session_state.filters["N"]), 
-                 hide_index=True, 
-                 selection_mode="single-row",
-                 on_select="rerun")
-        
-else :
-    st.subheader("Données brutes")
-    st.write("Veuillez filtrer les données")
+    if type(st.session_state.filtered_data) != type(None):
+        st.subheader(f"Données brutes (n = {len(st.session_state.filtered_data)})")
+        select_row = st.dataframe(st.session_state.filtered_data.head(st.session_state.filters["N"]), 
+                     hide_index=True, 
+                     selection_mode="single-row",
+                     on_select="rerun")
+            
+    else :
+        st.subheader("Données brutes")
+        st.write("Veuillez filtrer les données")
 
+with tab2:
 
+    if type(st.session_state.filtered_data) == type(None):
+        st.write("Veuillez filtrer les données")
+    elif type(st.session_state.id_obs) == type(None): # si aucune observation n'a ete selectionnee
+        st.write("Veuillez cliquer sur une observation pour afficher les données associées")
+    else : 
+        col_carte, col_data = st.columns([2, 2], border= True) # separation de l'affichage en 2 : une partie pour la carte et une pour les metadonnees
 
-
-
+        with col_carte:
+            row1 = st.container(height=400)
+            row2 = st.container(height=400)
+            with row1:
+                # st.subheader("Carte")
+                st_data = make_map(data.iloc[st.session_state.id_obs], 
+                               colormap,
+                               (st_data['last_object_clicked']["lat"], st_data['last_object_clicked']["lng"]), 
+                               360,
+                               360,
+                               1,
+                               clusters,
+                               key=2)
+            with row2 :
+                st.write(data.iloc[st.session_state.id_obs])
+        with col_data:
+            # TODO : à encapsuler dans une fonction
+            st.subheader("Metadonnées")
+            st.write(f"ID : {st.session_state.id_obs}")
+            st.write(f"espèce : {data.at[st.session_state.id_obs, 'Nom flore']}")
+            st.write(f"observateur : {data.at[st.session_state.id_obs, 'PrenomNom']}")
+            st.write(f"coordonnées : ({data.at[st.session_state.id_obs, 'Latitude']}, {data.at[st.session_state.id_obs, 'Longitude']}")
+            st.write(f"atypicité : {round(data.at[st.session_state.id_obs, 'Atypicité'], 3)}")
+            # index_in_filtered_data = int(st.session_state.filtered_data["ID"].to_list().index(st.session_state.id_obs))
+            # st.write(f"ID in fd : {index_in_filtered_data}")
+            
+            # TODO : rajouter un bouton "montrer plus de métadonnées" -> code postal/commune, fréquence...
+            # TODO : option "montrer les autres observations de cette espèce"
+            # TODO : superposition cartes
+            # TODO : bouton "modifier cette observation"
+            
