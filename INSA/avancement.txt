@@ -11,6 +11,8 @@ Ajout d'une vue groupée/synthétique des observations
 Ajout d'un filtre sur l'atypicité
 Ajout d'un code couleur représentant l'atypicité
 Ajout d'un onglet d'annotations (carte, métadonnées)
+Ajout d'une option "Afficher les données du relevé"
+Ajout d'une option "Afficher les autres observations de l'espèce"
 
 En cours :
 Lier le tableau de données affiché à la carte et aux métadonnées affichées
