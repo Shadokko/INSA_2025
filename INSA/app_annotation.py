@@ -77,12 +77,12 @@ def load_data(filename):
     chunk_size = 10_000 # les données seront chargées par paquets pour aller plus vite
     chunks = [] # liste qui contiendra tous les paquets de données
 
-    for chunk in pd.read_csv(filename, sep=";", usecols=["PrenomNom", "Latitude", "Longitude", "rank_ground_truth", "Nom flore", "Date_Releve"],chunksize=chunk_size):
+    for chunk in pd.read_csv(filename, sep=";", usecols=["PrenomNom", "Latitude", "Longitude", "rank_ground_truth", "Nom flore", "Date_Releve", "Nbre_donnees_espece"],chunksize=chunk_size):
         chunks.append(chunk)
     data = pd.concat(chunks, axis=0) # on fusionne tous les paquets pour obtenir les données complètes
     data["ID"] = data.index # on rajoute une colonne ID qui nous permettra d'identifier chaque ligne de façon unique
     data["Atypicité"] = compute_atypicity(data, "rank_ground_truth")
-    
+    data["Nbre_donnees_espece"] = data["Nbre_donnees_espece"].str.replace('[', '').str.replace(']', '')
     observateurs = list(data["PrenomNom"].unique())
     especes = list(data["Nom flore"].unique())
     
@@ -219,6 +219,37 @@ def make_map(f_data, colormap, center, width, height, N, toggle_clusters, key):
 
     return st_folium(map_, width=width, height=height, key=key)
 
+def update_id_obs(st_data, current, last):
+    new = int(st_data['last_object_clicked_popup'])
+    if new == current:
+        return (current, last)
+    else :
+        return (new, current)
+
+def afficher_metadonnees(data, id_obs, expand=False):
+    st.write(f"ID : {id_obs}")
+    st.write(f"espèce : {data.at[id_obs, 'Nom flore']}")
+    st.write(f"observateur : {data.at[id_obs, 'PrenomNom']}")
+    st.write(f"atypicité : {round(data.at[id_obs, 'Atypicité'], 3)}")
+    # index_in_filtered_data = int(st.session_state.filtered_data["ID"].to_list().index(st.session_state.id_obs))
+    # st.write(f"ID in fd : {index_in_filtered_data}")
+    if expand :
+        st.write(f"latitude : {data.at[id_obs, 'Latitude']}")
+        st.write(f"longitude : {data.at[id_obs, 'Longitude']}")
+        st.write(f"date : {pd.to_datetime(data.at[id_obs, 'Date_Releve'],format='%Y-%m-%d').strftime('%d %B %Y')}")
+        st.write(f"spécimens observés : {data.at[id_obs, 'Nbre_donnees_espece']}")
+            
+def augmenter_metadonnees(data, id_obs):
+    st.write("voici plus d'infos")
+
+
+
+
+
+
+
+
+
 
 st.title("Outil d'annotation")
 tab1, tab2 = st.tabs(["Visualisation", "Annotation"])
@@ -233,11 +264,18 @@ if "filtered" not in st.session_state:
     st.session_state.filtered = False
     st.session_state.filtered_data = None
     st.session_state.id_obs = None
+    st.session_state.last = None
+    st.session_state.show_more_data = False
+
+###################################################
+# Premier onglet pour la visualisation
 
 with tab1:
     col_carte, col_data = st.columns([3, 1], border= True) # separation de l'affichage en 2 : une partie pour la carte et une pour les metadonnees
-###################################################
-# Selection des filtres
+    
+    ###################################################
+    # Selection des filtres
+    
     st.sidebar.subheader("Filtres") # menu de selection des filtres
     with st.sidebar.form(key="filtres"):
         st.session_state.filters = dict()
@@ -257,9 +295,10 @@ with tab1:
                 st.text(st.session_state.filtered_data)
                 
     clusters = st.sidebar.toggle("Affichage groupé")
-###################################################
-# Affichage de la carte
     
+    ###################################################
+    # Affichage de la carte
+
     with col_carte:
         sub_col_carte_1, sub_col_carte_2 = st.columns(2)
         
@@ -279,8 +318,9 @@ with tab1:
                            clusters,
                            key=1)
     
-###################################################
-# Affichage des metadonnees
+    ###################################################
+    # Affichage des metadonnees
+
     with col_data:
         st.subheader("Metadonnées")
         if type(st.session_state.filtered_data) == type(None):
@@ -288,16 +328,13 @@ with tab1:
         elif type(st_data['last_object_clicked_popup']) == type(None): # si aucune observation n'a ete selectionnee
             st.write("Veuillez cliquer sur une observation pour afficher les données associées")
         else : 
-            st.session_state.id_obs = int(st_data['last_object_clicked_popup'])
-            st.write(f"ID : {st.session_state.id_obs}")
-            st.write(f"espèce : {data.at[st.session_state.id_obs, 'Nom flore']}")
-            st.write(f"observateur : {data.at[st.session_state.id_obs, 'PrenomNom']}")
-            st.write(f"coordonnées : ({data.at[st.session_state.id_obs, 'Latitude']}, {data.at[st.session_state.id_obs, 'Longitude']}")
-            st.write(f"atypicité : {round(data.at[st.session_state.id_obs, 'Atypicité'], 3)}")
+            st.session_state.id_obs, st.session_state.last = update_id_obs(st_data, st.session_state.id_obs, st.session_state.last)
+            afficher_metadonnees(data, st.session_state.id_obs)
 
-###################################################
-# Affichage d'un tableau de donnees supplementaire
-# TODO : lier le tableau à la carte et aux metadonnees pour sélectionner un point
+    ###################################################
+    # Affichage d'un tableau de donnees supplementaire
+    # TODO : lier le tableau à la carte et aux metadonnees pour sélectionner un point
+    
     if type(st.session_state.filtered_data) != type(None):
         st.subheader(f"Données brutes (n = {len(st.session_state.filtered_data)})")
         select_row = st.dataframe(st.session_state.filtered_data.head(st.session_state.filters["N"]), 
@@ -309,6 +346,8 @@ with tab1:
         st.subheader("Données brutes")
         st.write("Veuillez filtrer les données")
 
+###################################################
+# Deuxième onglet pour l'annotation et l'affichage de données supplémentaires
 with tab2:
 
     if type(st.session_state.filtered_data) == type(None):
@@ -321,6 +360,10 @@ with tab2:
         with col_carte:
             row1 = st.container(height=400)
             row2 = st.container(height=400)
+            
+            ###################################################
+            # Affichage d'une carte centrée et zoomée sur l'observation
+            
             with row1:
                 # st.subheader("Carte")
                 st_data = make_map(data.iloc[st.session_state.id_obs], 
@@ -331,20 +374,27 @@ with tab2:
                                1,
                                clusters,
                                key=2)
-            with row2 :
-                st.write(data.iloc[st.session_state.id_obs])
-        with col_data:
-            # TODO : à encapsuler dans une fonction
-            st.subheader("Metadonnées")
-            st.write(f"ID : {st.session_state.id_obs}")
-            st.write(f"espèce : {data.at[st.session_state.id_obs, 'Nom flore']}")
-            st.write(f"observateur : {data.at[st.session_state.id_obs, 'PrenomNom']}")
-            st.write(f"coordonnées : ({data.at[st.session_state.id_obs, 'Latitude']}, {data.at[st.session_state.id_obs, 'Longitude']}")
-            st.write(f"atypicité : {round(data.at[st.session_state.id_obs, 'Atypicité'], 3)}")
-            # index_in_filtered_data = int(st.session_state.filtered_data["ID"].to_list().index(st.session_state.id_obs))
-            # st.write(f"ID in fd : {index_in_filtered_data}")
+                
+            ###################################################
+            # Annotation
             
-            # TODO : rajouter un bouton "montrer plus de métadonnées" -> code postal/commune, fréquence...
+            with row2 :
+                st.subheader("Annotation")
+                
+        ###################################################
+        # Afficahge de données supplémentaires
+
+        with col_data:
+            sub_col_data_1, sub_col_data_2 = st.columns(2)
+            sub_col_data_1.subheader("Metadonnées")
+            
+            if type(st.session_state.filtered_data) != type(None): # si les donnees ont ete filtrees par l'utilisateur
+                st.session_state.show_more_data = sub_col_data_2.toggle("Afficher plus de données")
+
+            afficher_metadonnees(data, st.session_state.id_obs, expand=True)
+            if st.session_state.show_more_data :
+                augmenter_metadonnees(data, st.session_state.id_obs)
+            # TODO : rajouter un bouton "augmenter métadonnées" -> code postal/commune, fréquence...
             # TODO : option "montrer les autres observations de cette espèce"
             # TODO : superposition cartes
             # TODO : bouton "modifier cette observation"
