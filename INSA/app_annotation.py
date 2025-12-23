@@ -82,7 +82,7 @@ def load_data(filename):
     chunk_size = 10_000 # les données seront chargées par paquets pour aller plus vite
     chunks = [] # liste qui contiendra tous les paquets de données
 
-    for chunk in pd.read_csv(filename, sep=";", usecols=["PrenomNom", "Latitude", "Longitude", "rank_ground_truth", "Nom flore", "NbObs", "Nom_Valide", "popup", "Groupe", "Date_Releve", "Code_Releve", "NbObs_Releve"],chunksize=chunk_size):
+    for chunk in pd.read_csv(filename, sep=";", usecols=["PrenomNom", "Latitude", "Longitude", "rank_ground_truth", "Nom flore", "NbObs", "Nom_Valide", "Groupe", "Date_Releve", "Code_Releve", "NbObs_Releve"],chunksize=chunk_size):
         chunks.append(chunk)
     data = pd.concat(chunks, axis=0) # on fusionne tous les paquets pour obtenir les données complètes
     data["ID"] = data.index # on rajoute une colonne ID qui nous permettra d'identifier chaque ligne de façon unique
@@ -164,25 +164,28 @@ def add_markers(df, colormap, group, N=0):
             N = min(N, len(df)) # sinon, on affiche les N premières observations filtrées, ou toutes s'il y en a moins de N
         
         if N == 1:
+            # st.write(df.to_dict())
+            point = df.iloc[0]
             folium.CircleMarker(
-                location=list(df.loc[['Latitude', 'Longitude']]),
+                location=(point['Latitude'], point['Longitude']), #list(df.loc[['Latitude', 'Longitude']].iloc[0]),
                 radius=7,
                 color="black",
                 fill=True,
-                fill_color=colormap(float(df.loc[['Atypicité']].iloc[0])),
+                fill_color=colormap(float(point['Atypicité'])),
                 fill_opacity=1,
-                popup=df.loc[['ID']].iloc[0]
+                popup=point['ID']
                 ).add_to(group)
         else : 
             for i in range(N): # on affiche les N marqueurs
+                point = df.iloc[i]
                 folium.CircleMarker(
                     location=list(df.iloc[i].loc[['Latitude', 'Longitude']]),
                     radius=7,
                     color="black",
                     fill=True,
-                    fill_color=colormap(float(df.iloc[i].loc[['Atypicité']].iloc[0])),
+                    fill_color=colormap(float(point.loc[['Atypicité']].iloc[0])),
                     fill_opacity=1,
-                    popup=df.iloc[i].loc[['ID']].iloc[0]
+                    popup=point.loc[['ID']].iloc[0]
                     ).add_to(group)
 
 
@@ -231,6 +234,7 @@ def update_id_obs(st_data, current, last):
         return (new, current)
 
 def afficher_metadonnees(data, id_obs):
+    index_in_filtered_data = int(data["ID"].to_list().index(id_obs))
     st.write(f"ID : {id_obs}")
     st.write(f"espèce : {data.at[id_obs, 'Nom flore']}")
     st.write(f"nom valide : {data.at[id_obs, 'Nom_Valide']}")
@@ -240,8 +244,6 @@ def afficher_metadonnees(data, id_obs):
     st.write(f"coordonnées : ({data.at[id_obs, 'Latitude']}, {data.at[id_obs, 'Longitude']})")
     st.write(f"spécimens observés : {int(data.at[id_obs, 'NbObs'])}")
     st.write(f"atypicité : {round(data.at[id_obs, 'Atypicité'], 3)}")
-    # index_in_filtered_data = int(st.session_state.filtered_data["ID"].to_list().index(st.session_state.id_obs))
-    # st.write(f"ID in fd : {index_in_filtered_data}")
 
 def afficher_metadonnees_releve(data, id_obs):
     st.write("------")
@@ -296,7 +298,6 @@ with tab1:
             with st.sidebar.status("Selection des données...") as status:
                 st.session_state.filtered_data = filter_data(data, st.session_state.filters)
                 status.update(label='Données filtrées', state = "complete")
-                st.text(st.session_state.filtered_data)
                 
     clusters = st.sidebar.toggle("Affichage groupé")
     
@@ -311,16 +312,19 @@ with tab1:
             st.session_state.filters["N"] = sub_col_carte_2.slider("Combien d'observations afficher ?", min_value=1, max_value=100, value=30, step=1)
         else :
             st.session_state.filters["N"] = 50
-            
+        
+        if len(st.session_state.filtered_data) == 0:
+            st.error("Aucune observation ne correspond à ces critères")
+        else :
         # FIXME: make the map load faster
-        st_data1 = make_map(st.session_state.filtered_data, 
-                           colormap,
-                           GRENOBLE, 
-                           2000,
-                           500,
-                           st.session_state.filters["N"],
-                           clusters,
-                           key=1)
+            st_data1 = make_map(st.session_state.filtered_data, 
+                               colormap, 
+                               GRENOBLE, 
+                               2000,
+                               500,
+                               st.session_state.filters["N"],
+                               clusters,
+                               key=1)
     
     ###################################################
     # Affichage des metadonnees
@@ -333,7 +337,7 @@ with tab1:
             st.write("Veuillez cliquer sur une observation pour afficher les données associées")
         else : 
             st.session_state.id_obs, st.session_state.last = update_id_obs(st_data1, st.session_state.id_obs, st.session_state.last)
-            afficher_metadonnees(data, st.session_state.id_obs)
+            afficher_metadonnees(st.session_state.filtered_data, st.session_state.id_obs)
 
     ###################################################
     # Affichage d'un tableau de donnees supplementaire
@@ -344,7 +348,8 @@ with tab1:
         select_row = st.dataframe(st.session_state.filtered_data.head(st.session_state.filters["N"]), 
                      hide_index=True, 
                      selection_mode="single-row",
-                     on_select="rerun")
+                     on_select="rerun",
+                     column_order=("ID", "Nom flore", "Nom_Valide", "Latitude", "Longitude", "PrenomNom", "NbObs", "Groupe", "Atypicité", "rank_ground_truth", "Code_Releve", "Date_Releve", "NbObs_Releve"))
             
     else :
         st.subheader("Données brutes")
@@ -356,7 +361,7 @@ with tab2:
 
     if type(st.session_state.filtered_data) == type(None):
         st.write("Veuillez filtrer les données")
-    elif type(st.session_state.id_obs) == type(None): # si aucune observation n'a ete selectionnee
+    elif type(st_data1['last_object_clicked']) == type(None): # si aucune observation n'a ete selectionnee
         st.write("Veuillez cliquer sur une observation pour afficher les données associées")
     else : 
         col_carte, col_data = st.columns([2, 2], border= True) # separation de l'affichage en 2 : une partie pour la carte et une pour les metadonnees
@@ -384,7 +389,7 @@ with tab2:
                                clusters,
                                key=2)
                 else :
-                    st_data2 = make_map(data.iloc[st.session_state.id_obs], 
+                    st_data2 = make_map(data.iloc[[st.session_state.id_obs]], 
                                colormap,
                                (st_data1['last_object_clicked']["lat"], st_data1['last_object_clicked']["lng"]), 
                                360,
@@ -398,9 +403,9 @@ with tab2:
             
             with row2 :
                 st.subheader("Annotation")
-                actions_possibles = ["Modifier l'espèce", "Modifier la position", "Signaler un micro-milieux"]
-                choice = st.selectbox("Que souhaitez-vous faire ?", actions_possibles, index=None)
-                
+                actions_possibles = ["Modifier l'espèce", "Modifier la position", "Signaler un micro-milieux", "Valider l'observation", "Autre"]
+                action = st.selectbox("Que souhaitez-vous faire ?", actions_possibles, index=None)
+
         ###################################################
         # Afficahge de données supplémentaires
 
@@ -417,7 +422,6 @@ with tab2:
                     data["Code_Releve"]==data.at[st.session_state.id_obs, 'Code_Releve']
                     ], hide_index=True, column_order=("ID", "Nom flore", "Nom_Valide", "NbObs", "Atypicité"))
                 
-            # TODO : ajouter code postal/commune
-            # TODO : option "montrer les autres observations de cette espèce"
+            # TODO : ajouter code postal/commune, nbr de communes où l'espèce est présente
             # TODO : superposition cartes
             
