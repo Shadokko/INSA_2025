@@ -251,9 +251,22 @@ def afficher_metadonnees_releve(data, id_obs):
     st.write(f"date relevé : {data.at[id_obs, 'Date_Releve']}")
     st.write(f"observations dans le relevé : {data.at[id_obs, 'NbObs_Releve']}")
 
-
-
-
+def annoter(data, action, id_obs, especes):
+    with st.form(key="annotation"):        
+        match action:
+            case "Modifier l'espèce/le nom de l'espèce":
+                nom = st.selectbox("Nom de l'espèce", especes)
+                nom_bis = st.text_input("Ou entrez ici le nom de l'espèce", "")
+            case "Modifier la position":
+                lat = st.text_input("Latitude", "")
+                lng = st.text_input("Longitude", "")
+            case "Signaler un micro-milieux":
+                 micro_milieu = st.text_area("Description", "")
+            case "Valider l'observation":
+                validation = st.checkbox("Je confirme l'observation")
+            case "Autre":
+                remarque = st.text_area("Autres remarques", "")
+        st.form_submit_button(label="Enregistrer") # validation de l'annotation
 
 
 st.title("Outil d'annotation")
@@ -293,6 +306,7 @@ with tab1:
         st.markdown('''0 :green[----------]:yellow[----------]:orange[----------]:red[----------]:violet[----------] 10''') # légende
         st.session_state.filters["Méthode"] = st.radio("Méthode de calcul de l'atypicité :", ["rank_ground_truth"])
         
+        # TODO : réécrire les "if" avec if filtered
         st.session_state.filtered = st.form_submit_button(label="Enregistrer") # validation des filtres
         if st.session_state.filtered : #creation d'un subset des donnees filtrees
             with st.sidebar.status("Selection des données...") as status:
@@ -313,7 +327,7 @@ with tab1:
         else :
             st.session_state.filters["N"] = 50
         
-        if len(st.session_state.filtered_data) == 0:
+        if type(st.session_state.filtered_data)!=type(None) and len(st.session_state.filtered_data) == 0:
             st.error("Aucune observation ne correspond à ces critères")
         else :
         # FIXME: make the map load faster
@@ -368,7 +382,7 @@ with tab2:
 
         with col_carte:
             row1 = st.container(height=475)
-            row2 = st.container(height=500)
+            row2 = st.container(height=475)
             
             ###################################################
             # Affichage d'une carte centrée et zoomée sur l'observation
@@ -403,9 +417,10 @@ with tab2:
             
             with row2 :
                 st.subheader("Annotation")
-                actions_possibles = ["Modifier l'espèce", "Modifier la position", "Signaler un micro-milieux", "Valider l'observation", "Autre"]
+                actions_possibles = ["Modifier l'espèce/le nom de l'espèce", "Modifier la position", "Signaler un micro-milieux", "Valider l'observation", "Autre"]
                 action = st.selectbox("Que souhaitez-vous faire ?", actions_possibles, index=None)
-
+                annoter(data, action, st.session_state.id_obs, especes)
+                
         ###################################################
         # Afficahge de données supplémentaires
 
