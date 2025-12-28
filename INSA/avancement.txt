@@ -13,6 +13,7 @@ Ajout d'un code couleur représentant l'atypicité
 Ajout d'un onglet d'annotations (carte, métadonnées)
 Ajout d'une option "Afficher les données du relevé"
 Ajout d'une option "Afficher les autres observations de l'espèce"
+Ajout de colonnes pour l'annotation
 
 En cours :
 Lier le tableau de données affiché à la carte et aux métadonnées affichées
@@ -22,6 +23,6 @@ Problème : Réutilisation du code fourni, dépendances manquantes (en cours de rés
 
 À venir : 
 Implement a drag'n'drop option to upload a new data file, or a file selector with a browser
-Ajout des annotations
+Ajout des annotations et d'un bouton "exporter les annotations"
 Renvoyer les chemins d'accès, paramètres, constants, etc. dans un fichier de config séparé (en .yml)
 Ajout d'un code couleur représentant les données déjà vérifiées

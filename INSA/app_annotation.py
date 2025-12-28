@@ -18,7 +18,6 @@ import branca.colormap as cm
 
 st.set_page_config(layout="wide")
 
-# TODO : fix relative path
 # TODO: renvoyer les chemins d'accès, paramètres, constants, etc. dans un fichier de config séparé (en .yml)
 path2param = Path(__file__).parent / "params.yml"
 
@@ -89,7 +88,9 @@ def load_data(filename):
     data["Atypicité"] = compute_atypicity(data, "rank_ground_truth")
     observateurs = list(data["PrenomNom"].unique())
     especes = list(data["Nom flore"].unique())
-    
+    for i in ["espece", "longitude", "latitude", "micro", "remarque"]:
+        data[f"annotation_{i}"] = None
+    data["validation"] = False
     return data, observateurs, especes
 
 
@@ -234,16 +235,28 @@ def update_id_obs(st_data, current, last):
         return (new, current)
 
 def afficher_metadonnees(data, id_obs):
-    index_in_filtered_data = int(data["ID"].to_list().index(id_obs))
+    # index_in_filtered_data = int(data["ID"].to_list().index(id_obs))
     st.write(f"ID : {id_obs}")
     st.write(f"espèce : {data.at[id_obs, 'Nom flore']}")
     st.write(f"nom valide : {data.at[id_obs, 'Nom_Valide']}")
+    if data.at[id_obs, 'annotation_espece']:
+        st.write(f":green[espèce corrigée : {data.at[id_obs, 'annotation_espece']}]")
     st.write(f"groupe : {data.at[id_obs, 'Groupe']}")
     st.write(f"observateur : {data.at[id_obs, 'PrenomNom']}")
     st.write(f"date : {pd.to_datetime(data.at[id_obs, 'Date_Releve'],format='%Y-%m-%d').strftime('%d %B %Y')}")
     st.write(f"coordonnées : ({data.at[id_obs, 'Latitude']}, {data.at[id_obs, 'Longitude']})")
+    if data.at[id_obs, 'annotation_latitude'] or data.at[id_obs, 'annotation_longitude']: 
+        st.write(f":green[coordonnées corrigées : {data.at[id_obs, 'annotation_remarque']}]")
     st.write(f"spécimens observés : {int(data.at[id_obs, 'NbObs'])}")
     st.write(f"atypicité : {round(data.at[id_obs, 'Atypicité'], 3)}")
+    if data.at[id_obs, 'annotation_remarque']:
+        st.write(f":green[remarque : {data.at[id_obs, 'annotation_remarque']}]")
+    if data.at[id_obs, 'annotation_remarque'] or data.at[id_obs, 'annotation_espece'] or data.at[id_obs, 'annotation_micro'] or data.at[id_obs, 'annotation_latitude'] or data.at[id_obs, 'annotation_longitude']:
+        st.write(":green[observation annotée]")
+    elif data.at[id_obs, 'validation']:
+        st.write(":green[observation validée]")
+    else: 
+        st.write(":red[observation en attente de validation]")
 
 def afficher_metadonnees_releve(data, id_obs):
     st.write("------")
@@ -252,21 +265,22 @@ def afficher_metadonnees_releve(data, id_obs):
     st.write(f"observations dans le relevé : {data.at[id_obs, 'NbObs_Releve']}")
 
 def annoter(data, action, id_obs, especes):
-    with st.form(key="annotation"):        
-        match action:
-            case "Modifier l'espèce/le nom de l'espèce":
-                nom = st.selectbox("Nom de l'espèce", especes)
-                nom_bis = st.text_input("Ou entrez ici le nom de l'espèce", "")
-            case "Modifier la position":
-                lat = st.text_input("Latitude", "")
-                lng = st.text_input("Longitude", "")
-            case "Signaler un micro-milieux":
-                 micro_milieu = st.text_area("Description", "")
-            case "Valider l'observation":
-                validation = st.checkbox("Je confirme l'observation")
-            case "Autre":
-                remarque = st.text_area("Autres remarques", "")
-        st.form_submit_button(label="Enregistrer") # validation de l'annotation
+    if action!=None:
+        with st.form(clear_on_submit=True, key="annotation"):       
+            match action:
+                case "Modifier l'espèce/le nom de l'espèce":
+                    data.at[id_obs, "annotation_espece"] = st.selectbox("Nom de l'espèce", especes)
+                case "Modifier la position":
+                    data.at[id_obs, "annotation_latitude"] = st.text_input("Latitude", "")
+                    data.at[id_obs, "annotation_longitude"] = st.text_input("Longitude", "")
+                case "Signaler un micro-milieux":
+                     data.at[id_obs, "annotation_micro"] = st.text_area("Description", "")
+                case "Valider l'observation":
+                    data.at[id_obs, "annotation_validation"] = st.checkbox("Je confirme l'observation")
+                case "Autre":
+                    data.at[id_obs, "annotation_remarque"] = st.text_area("Autres remarques", "")
+            st.form_submit_button(label="Enregistrer") # validation de l'annotation
+            
 
 
 st.title("Outil d'annotation")
@@ -298,8 +312,8 @@ with tab1:
     st.sidebar.subheader("Filtres") # menu de selection des filtres
     with st.sidebar.form(key="filtres"):
         st.session_state.filters = dict()
-        st.session_state.filters["PrenomNom"] = st.multiselect("Nom de l'observateur", observateurs)
-        st.session_state.filters["Nom flore"] = st.multiselect("Espèce", especes)
+        st.session_state.filters["PrenomNom"] = st.multiselect("Nom de l'observateur", observateurs, placeholder="Aucune sélection")
+        st.session_state.filters["Nom flore"] = st.multiselect("Espèce", especes, placeholder="Aucune sélection")
         st.session_state.filters["Debut"] = st.date_input("Du", value = "1990-01-01", min_value="1990-01-01", max_value="today", format="YYYY-MM-DD")
         st.session_state.filters["Fin"] = st.date_input("Jusqu'au", value = "today", min_value="1990-01-01", max_value="today", format="YYYY-MM-DD")
         st.session_state.filters["lo_Score"], st.session_state.filters["hi_Score"] = st.select_slider("Atypicité", options=[i for i in np.arange(0, 10.5, 0.5)], value=(0,10))
@@ -363,7 +377,7 @@ with tab1:
                      hide_index=True, 
                      selection_mode="single-row",
                      on_select="rerun",
-                     column_order=("ID", "Nom flore", "Nom_Valide", "Latitude", "Longitude", "PrenomNom", "NbObs", "Groupe", "Atypicité", "rank_ground_truth", "Code_Releve", "Date_Releve", "NbObs_Releve"))
+                     column_order=("ID", "Nom flore", "Nom_Valide", "Latitude", "Longitude", "PrenomNom", "NbObs", "Groupe", "Atypicité", "rank_ground_truth", "Code_Releve", "Date_Releve", "NbObs_Releve", "annotation_espece", "annotation_latitude", "annotation_longitude", "annotation_micro", "annotation_remarque", "validation"))
             
     else :
         st.subheader("Données brutes")
@@ -418,7 +432,7 @@ with tab2:
             with row2 :
                 st.subheader("Annotation")
                 actions_possibles = ["Modifier l'espèce/le nom de l'espèce", "Modifier la position", "Signaler un micro-milieux", "Valider l'observation", "Autre"]
-                action = st.selectbox("Que souhaitez-vous faire ?", actions_possibles, index=None)
+                action = st.selectbox("Que souhaitez-vous faire ?", actions_possibles, index=None, placeholder="Veuillez choisir une option")
                 annoter(data, action, st.session_state.id_obs, especes)
                 
         ###################################################
