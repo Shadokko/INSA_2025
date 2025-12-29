@@ -10,12 +10,6 @@ import numpy as np
 import branca.colormap as cm
 import debugpy
 
-# TODO : afficher limites Isère
-# import requests
-# geo_json_data = requests.get(
-#     "https://github.com/gregoiredavid/france-geojson/blob/master/departements/38-isere/departement-38-isere.geojson"
-# ).json()
-
 
 st.set_page_config(layout="wide")
 
@@ -26,6 +20,8 @@ print(f"Loading parameter file: {path2param.resolve()}")
 yaml=YAML(typ='safe')   # default, if not specfied, is 'rt' (round-trip)
 params = yaml.load(path2param)
 DATA_PATH = params['DATA_PATH']
+ISERE = params['ISERE']
+__width__ = params['width']
 # DATA_PATH = "../../result_export.csv"
 print(f"Data path: {Path(DATA_PATH).resolve()}\n")
 
@@ -60,7 +56,8 @@ def compute_atypicity(filtered_data, data, method):
         case "rank_ground_truth":
             return 10*(filtered_data["rank_ground_truth"]-np.min(data["rank_ground_truth"]))/(np.max(data["rank_ground_truth"])-np.min(data["rank_ground_truth"]))
 
-
+# TODO: create an sqlite database with password by user, and propose the option to load only user specific data
+# Using sqlite would allow to make the loading faster, with a table with only in lat/lon/date/species/observer data, and other tables with other metadata
 @st.cache_data
 def load_data(filename):
     """
@@ -97,6 +94,10 @@ def load_data(filename):
         data[f"annotation_{i}"] = None
     if not "validation" in data.columns: # do not erase existing validation annotations
         data["validation"] = False
+    else:
+        data["validation"] = data["validation"].fillna(False)
+        if data["validation"].dtype != bool:
+            st.error("La colonne 'validation' doit contenir des valeurs booléennes (True/False). Veuillez corriger le fichier de données.")
     return data, observateurs, especes
 
 
@@ -134,12 +135,13 @@ def filter_data(data, filters):
             filtered_data = filtered_data.loc[pd.to_datetime(filtered_data["Date_Releve"],format='%Y-%m-%d').dt.date >= filters["Debut"]] # sinon, on garde uniquement les données ultérieures à la date de début choisie
             filtered_data = filtered_data.loc[pd.to_datetime(filtered_data["Date_Releve"],format='%Y-%m-%d').dt.date <= filters["Fin"]] # puis, on garde uniquement les données précédant la date de début choisie
         
-        filtered_data["Atypicité"] = compute_atypicity(filtered_data, data, st.session_state.filters["Méthode"])
+        # filtered_data["Atypicité"] = compute_atypicity(filtered_data, data, st.session_state.filters["Méthode"])
         filtered_data = filtered_data.loc[filtered_data["Atypicité"]<st.session_state.filters["hi_Score"]]
         filtered_data = filtered_data.loc[filtered_data["Atypicité"]>st.session_state.filters["lo_Score"]]
+        filtered_data = filtered_data.sort_values(by="Atypicité", ascending=False).head(int(st.session_state.filters['Top_atypicity']))
     return filtered_data
 
-
+# TODO: change appearance of markers when data is validated.
 def add_markers(df, colormap, group, N=0):
     """
     Ajoute les N premiers marqueurs sur la carte, parmi les données filtrées
@@ -184,7 +186,7 @@ def add_markers(df, colormap, group, N=0):
                 tooltip=f"ID : {point.loc[['ID']].iloc[0]}<br> espèce : {point.loc[['Nom flore']].iloc[0]}<br> atypicité : {round(point.loc[['Atypicité']].iloc[0], 3)}"
                 ).add_to(group)
 
-
+# TODO: compute also geographical span of data to propose a zoom level
 def compute_center(data):
     """
     Calcule le centre géographique des données
@@ -199,11 +201,37 @@ def compute_center(data):
     center : tuple
         coordonnées (latitude, longitude) du centre géographique des données
     """  
-    lat_center = (data["Latitude"].max() + data["Latitude"].min())/2
-    lon_center = (data["Longitude"].max() + data["Longitude"].min())/2
-    return (lat_center, lon_center)
+    lat_center = float(data["Latitude"].max() + data["Latitude"].min())/2
+    lon_center = float(data["Longitude"].max() + data["Longitude"].min())/2
+    lat_expand = data["Latitude"].max() - data["Latitude"].min()
+    lon_expand = data["Longitude"].max() - data["Longitude"].min()
+    expand = max(lat_expand, lon_expand)
+    if expand < 0.1: zoom = 11
+    elif expand < 0.3: zoom = 10
+    elif expand < 1: zoom = 9
+    else: zoom = 8
+    return (lat_center, lon_center), zoom
 
-def make_map(f_data, colormap, width, height, N, toggle_clusters, key, 
+def compute_bounds(data):
+    """
+    Calcule les limites géographiques des données
+
+    Parameters
+    ----------
+    data : pandas data frame
+        tableau contenant les données filtrées
+        
+    Returns
+    -------
+    bounds : list
+        liste des coordonnées des coins sud-ouest et nord-est des données
+    """  
+    sw = (data["Latitude"].min(), data["Longitude"].min())
+    ne = (data["Latitude"].max(), data["Longitude"].max())
+    return [sw, ne]
+
+# todo: add legend
+def make_map(f_data, colormap, N=30, toggle_clusters=False, toggle_dpt=False, 
              center=__GRENOBLE__, zoom_start=8):
     """
     Ajoute les N premiers marqueurs sur la carte, parmi les données filtrées
@@ -226,9 +254,13 @@ def make_map(f_data, colormap, width, height, N, toggle_clusters, key,
     -------
     st_folium
         carte
-    """  
-    map_ = folium.Map(location=center, zoom_start=8) #affiche la carte centrée sur Grenoble
-   
+    """
+    try:
+        center, zoom_start = compute_center(f_data)
+    except:
+        pass
+    map_ = folium.Map(location=center, zoom_start=zoom_start) #affiche la carte centrée sur Grenoble
+    if st.session_state.dpt: folium.GeoJson(ISERE).add_to(map_)   
     if toggle_clusters : # affichage groupé des observations
         marker_cluster = folium.plugins.MarkerCluster().add_to(map_)
         group_1 = folium.FeatureGroup("observations").add_to(marker_cluster)
@@ -236,7 +268,8 @@ def make_map(f_data, colormap, width, height, N, toggle_clusters, key,
         group_1 = folium.FeatureGroup("observations").add_to(map_)
     add_markers(f_data, colormap, group_1, N=N)
 
-    return st_folium(map_, width=width, height=height, key=key)
+    return map_
+    # return st_folium(map_, width=width, height=height, key=key, on_change=callback)
 
 def update_id_obs(st_data, current, last):
     new = int(st_data['last_object_clicked_popup'].split()[2])
@@ -245,6 +278,7 @@ def update_id_obs(st_data, current, last):
     else :
         return (new, current)
 
+# TODO: change it to display it in a more compact way (for instance on mouse click)
 def afficher_metadonnees(data, id_obs):
     # index_in_filtered_data = int(data["ID"].to_list().index(id_obs))
     st.write(f"ID : {id_obs}")
@@ -296,13 +330,20 @@ def annoter(data, action, id_obs, especes):
 if __name__ == "__main__":
     st.title("Outil d'annotation")
 
+    # TODO: use only a single tab both for visulisation and annotation, with one more pane.
+    # Metadata are not that important, they can be displayed on click, and save some space in display.
+    
     tab1, tab2 = st.tabs(["Visualisation", "Annotation"])
 
     ###################################################
     # Chargement des donnees
     # msg = st.toast("Chargement des données...")
     data, observateurs, especes = load_data(DATA_PATH)
+
     # msg.toast("Données à jour !", icon=":material/check:")
+    if "map_center" not in st.session_state:
+        st.session_state["map_center"] = __GRENOBLE__
+        st.session_state["map_zoom"] = 8
 
     if "filtered" not in st.session_state:
         st.session_state.filtered = False
@@ -329,18 +370,30 @@ if __name__ == "__main__":
             st.session_state.filters["Debut"] = st.date_input("Du", value = "1990-01-01", min_value="1990-01-01", max_value="today", format="YYYY-MM-DD")
             st.session_state.filters["Fin"] = st.date_input("Jusqu'au", value = "today", min_value="1990-01-01", max_value="today", format="YYYY-MM-DD")
             st.session_state.filters["lo_Score"], st.session_state.filters["hi_Score"] = st.select_slider("Atypicité", options=[i for i in np.arange(0, 10.5, 0.5)], value=(0,10))
+            st.session_state.filters['Top_atypicity'] = st.slider('Filter les plus atypiques', min_value=5, max_value=100, value=20, step=5)
             st.markdown('''0 :green[----------]:yellow[----------]:orange[----------]:red[----------]:violet[----------] 10''') # légende
             st.session_state.filters["Méthode"] = st.radio("Méthode de calcul de l'atypicité :", ["rank_ground_truth"])
-            
-            # TODO : réécrire les "if" avec if filtered
+
             st.session_state.filtered = st.form_submit_button(label="Enregistrer") # validation des filtres
             if st.session_state.filtered : #creation d'un subset des donnees filtrees
                 with st.sidebar.status("Selection des données...") as status:
                     st.session_state.filtered_data = filter_data(data, st.session_state.filters)
                     status.update(label='Données filtrées', state = "complete")
-                    
+
+                with st.sidebar.status("Calcul de l'atypicité sur les données filtrées...") as status:
+                    st.session_state.filtered_data["Atypicité"] = compute_atypicity(st.session_state.filtered_data, 
+                                                                                    data, st.session_state.filters["Méthode"])
+                    status.update(label='Atypicité calculée', state = "complete")
+                
+
         clusters = st.sidebar.toggle("Affichage groupé")
-        
+        st.session_state.dpt =st.sidebar.toggle("Afficher le département de l'Isère")
+
+
+
+        # TODO: add statistics on number of obs, number of filtered obs, number of species, histogram on Atypicity
+
+
         ###################################################
         # Affichage de la carte
 
@@ -357,13 +410,14 @@ if __name__ == "__main__":
                 st.error("Aucune observation ne correspond à ces critères")
             else :
             # FIXME: make the map load faster
-                st_data1 = make_map(st.session_state.filtered_data, 
+                map1 = make_map(st.session_state.filtered_data,
                                 colormap,
-                                2000,
-                                500,
-                                st.session_state.filters["N"],
-                                clusters,
-                                key=1)
+                                N=st.session_state.filters["N"],
+                                toggle_clusters=clusters, 
+                                toggle_dpt=st.session_state.dpt)
+
+                st_data1 = st_folium(map1, key='map1', 
+                                     width=__width__)
         
         ###################################################
         # Affichage des metadonnees
@@ -396,72 +450,74 @@ if __name__ == "__main__":
 
     ###################################################
     # Deuxième onglet pour l'annotation et l'affichage de données supplémentaires
-    with tab2:
 
-        if type(st.session_state.filtered_data) == type(None):
-            st.write("Veuillez filtrer les données")
-        elif type(st_data1['last_object_clicked']) == type(None): # si aucune observation n'a ete selectionnee
-            st.write("Veuillez cliquer sur une observation pour afficher les données associées")
-        else : 
-            col_carte, col_data = st.columns([2, 2], border= True) # separation de l'affichage en 2 : une partie pour la carte et une pour les metadonnees
+    # skip this part
 
-            with col_carte:
-                row1 = st.container(height=475)
-                row2 = st.container(height=475)
+    # with tab2:
+    #     if type(st.session_state.filtered_data) == type(None):
+    #         st.write("Veuillez filtrer les données")
+    #     elif type(st_data1['last_object_clicked']) == type(None): # si aucune observation n'a ete selectionnee
+    #         st.write("Veuillez cliquer sur une observation pour afficher les données associées")
+    #     else : 
+    #         col_carte, col_data = st.columns([2, 2], border= True) # separation de l'affichage en 2 : une partie pour la carte et une pour les metadonnees
+
+    #         with col_carte:
+    #             row1 = st.container(height=475)
+    #             row2 = st.container(height=475)
                 
-                ###################################################
-                # Affichage d'une carte centrée et zoomée sur l'observation
+    #             ###################################################
+    #             # Affichage d'une carte centrée et zoomée sur l'observation
                 
-                with row1:
-                    sub_col_carte_1, sub_col_carte_2 = st.columns(2)
+    #             with row1:
+    #                 sub_col_carte_1, sub_col_carte_2 = st.columns(2)
                     
-                    sub_col_carte_1.subheader("Cartes")
-                    afficher_espece = sub_col_carte_2.toggle("Afficher l'espèce")
+    #                 sub_col_carte_1.subheader("Cartes")
+    #                 afficher_espece = sub_col_carte_2.toggle("Afficher l'espèce")
 
-                    if afficher_espece :
-                        st_data2 = make_map(data.loc[data["Nom flore"]==data.at[st.session_state.id_obs, 'Nom flore']],
-                                colormap, 
-                                360,
-                                360,
-                                100,
-                                clusters,
-                                key=2, 
-                                center=(st_data1['last_object_clicked']["lat"], st_data1['last_object_clicked']["lng"]))
-                    else :
-                        st_data2 = make_map(data.iloc[[st.session_state.id_obs]], 
-                                colormap,
-                                360,
-                                360,
-                                1,
-                                clusters,
-                                key=2, 
-                                center=(st_data1['last_object_clicked']["lat"], st_data1['last_object_clicked']["lng"]))
+    #                 if afficher_espece :
+    #                     st_data2 = make_map(data.loc[data["Nom flore"]==data.at[st.session_state.id_obs, 'Nom flore']],
+    #                             colormap, 
+    #                             360,
+    #                             360,
+    #                             100,
+    #                             clusters,
+    #                             key=2, 
+    #                             center=(st_data1['last_object_clicked']["lat"], st_data1['last_object_clicked']["lng"]))
+    #                 else :
+    #                     st_data2 = make_map(data.iloc[[st.session_state.id_obs]], 
+    #                             colormap,
+    #                             360,
+    #                             360,
+    #                             1,
+    #                             clusters,
+    #                             key=2, 
+    #                             center=(st_data1['last_object_clicked']["lat"], st_data1['last_object_clicked']["lng"]))
                     
-                ###################################################
-                # Annotation
+    #             ###################################################
+    #             # Annotation
                 
-                with row2 :
-                    st.subheader("Annotation")
-                    actions_possibles = ["Modifier l'espèce/le nom de l'espèce", "Modifier la position", "Signaler un micro-milieux", "Valider l'observation", "Autre"]
-                    action = st.selectbox("Que souhaitez-vous faire ?", actions_possibles, index=None, placeholder="Veuillez choisir une option")
-                    annoter(data, action, st.session_state.id_obs, especes)
+    #             with row2 :
+    #                 st.subheader("Annotation")
+    #                 actions_possibles = ["Modifier l'espèce/le nom de l'espèce", "Modifier la position", "Signaler un micro-milieux", "Valider l'observation", "Autre"]
+    #                 action = st.selectbox("Que souhaitez-vous faire ?", actions_possibles, index=None, placeholder="Veuillez choisir une option")
+    #                 annoter(data, action, st.session_state.id_obs, especes)
                     
-            ###################################################
-            # Afficahge de données supplémentaires
+    #         ###################################################
+    #         # Afficahge de données supplémentaires
 
-            with col_data:
-                sub_col_data_1, sub_col_data_2 = st.columns(2)
+    #         with col_data:
+    #             sub_col_data_1, sub_col_data_2 = st.columns(2)
                 
-                sub_col_data_1.subheader("Metadonnées")
-                afficher_releve = sub_col_data_2.toggle("Afficher le relevé")
+    #             sub_col_data_1.subheader("Metadonnées")
+    #             afficher_releve = sub_col_data_2.toggle("Afficher le relevé")
 
-                afficher_metadonnees(data, st.session_state.id_obs)
-                if afficher_releve :
-                    afficher_metadonnees_releve(data, st.session_state.id_obs)
-                    st.dataframe(data.loc[
-                        data["Code_Releve"]==data.at[st.session_state.id_obs, 'Code_Releve']
-                        ], hide_index=True, column_order=("ID", "Nom flore", "Nom_Valide", "NbObs", "Atypicité"))
+    #             afficher_metadonnees(data, st.session_state.id_obs)
+    #             if afficher_releve :
+    #                 afficher_metadonnees_releve(data, st.session_state.id_obs)
+    #                 st.dataframe(data.loc[
+    #                     data["Code_Releve"]==data.at[st.session_state.id_obs, 'Code_Releve']
+    #                     ], hide_index=True, column_order=("ID", "Nom flore", "Nom_Valide", "NbObs", "Atypicité"))
                     
-                # TODO : ajouter code postal/commune, nbr de communes où l'espèce est présente
-                # TODO : superposition cartes
+    #             # TODO : ajouter code postal/commune, nbr de communes où l'espèce est présente
+    #             # TODO : superposition cartes
                 
