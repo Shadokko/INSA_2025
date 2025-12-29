@@ -95,7 +95,8 @@ def load_data(filename):
     especes = list(data["Nom flore"].unique())
     for i in ["espece", "longitude", "latitude", "micro", "remarque"]:
         data[f"annotation_{i}"] = None
-    data["validation"] = False
+    if not "validation" in data.columns: # do not erase existing validation annotations
+        data["validation"] = False
     return data, observateurs, especes
 
 
@@ -178,11 +179,32 @@ def add_markers(df, colormap, group, N=0):
                 fill=True,
                 fill_color=colormap(float(point.loc[['Atypicité']].iloc[0])),
                 fill_opacity=1,
-                popup=point.loc[['ID']].iloc[0]
+                popup=f"ID : {point.loc[['ID']].iloc[0]}<br> espèce : {point.loc[['Nom flore']].iloc[0]}<br> atypicité : {round(point.loc[['Atypicité']].iloc[0], 3)}", 
+                hover=True, 
+                tooltip=f"ID : {point.loc[['ID']].iloc[0]}<br> espèce : {point.loc[['Nom flore']].iloc[0]}<br> atypicité : {round(point.loc[['Atypicité']].iloc[0], 3)}"
                 ).add_to(group)
 
 
-def make_map(f_data, colormap, center, width, height, N, toggle_clusters, key):
+def compute_center(data):
+    """
+    Calcule le centre géographique des données
+
+    Parameters
+    ----------
+    data : pandas data frame
+        tableau contenant les données filtrées
+        
+    Returns
+    -------
+    center : tuple
+        coordonnées (latitude, longitude) du centre géographique des données
+    """  
+    lat_center = (data["Latitude"].max() + data["Latitude"].min())/2
+    lon_center = (data["Longitude"].max() + data["Longitude"].min())/2
+    return (lat_center, lon_center)
+
+def make_map(f_data, colormap, width, height, N, toggle_clusters, key, 
+             center=__GRENOBLE__, zoom_start=8):
     """
     Ajoute les N premiers marqueurs sur la carte, parmi les données filtrées
 
@@ -193,9 +215,6 @@ def make_map(f_data, colormap, center, width, height, N, toggle_clusters, key):
         
     colormap : branca colormap
         échelle de couleur du vert au violet pour représenter l'atypicité
-        
-    center : tuple de float
-        coordonnées du centre de la carte
         
     N : int
         nombre d'observations à afficher sur la carte
@@ -220,7 +239,7 @@ def make_map(f_data, colormap, center, width, height, N, toggle_clusters, key):
     return st_folium(map_, width=width, height=height, key=key)
 
 def update_id_obs(st_data, current, last):
-    new = int(st_data['last_object_clicked_popup'])
+    new = int(st_data['last_object_clicked_popup'].split()[2])
     if new == current:
         return (current, last)
     else :
@@ -339,8 +358,7 @@ if __name__ == "__main__":
             else :
             # FIXME: make the map load faster
                 st_data1 = make_map(st.session_state.filtered_data, 
-                                colormap, 
-                                __GRENOBLE__, 
+                                colormap,
                                 2000,
                                 500,
                                 st.session_state.filters["N"],
@@ -402,22 +420,22 @@ if __name__ == "__main__":
 
                     if afficher_espece :
                         st_data2 = make_map(data.loc[data["Nom flore"]==data.at[st.session_state.id_obs, 'Nom flore']],
-                                colormap,
-                                (st_data1['last_object_clicked']["lat"], st_data1['last_object_clicked']["lng"]), 
+                                colormap, 
                                 360,
                                 360,
                                 100,
                                 clusters,
-                                key=2)
+                                key=2, 
+                                center=(st_data1['last_object_clicked']["lat"], st_data1['last_object_clicked']["lng"]))
                     else :
                         st_data2 = make_map(data.iloc[[st.session_state.id_obs]], 
                                 colormap,
-                                (st_data1['last_object_clicked']["lat"], st_data1['last_object_clicked']["lng"]), 
                                 360,
                                 360,
                                 1,
                                 clusters,
-                                key=2)
+                                key=2, 
+                                center=(st_data1['last_object_clicked']["lat"], st_data1['last_object_clicked']["lng"]))
                     
                 ###################################################
                 # Annotation
