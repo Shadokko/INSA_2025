@@ -169,19 +169,6 @@ def add_markers(df, colormap, group, N=0):
         else:
             N = min(N, len(df)) # sinon, on affiche les N premières observations filtrées, ou toutes s'il y en a moins de N
         
-        if 0:
-            # st.write(df.to_dict())
-            point = df.iloc[0]
-            folium.CircleMarker(
-                location=(point['Latitude'], point['Longitude']), #list(df.loc[['Latitude', 'Longitude']].iloc[0]),
-                radius=7,
-                color="black",
-                fill=True,
-                fill_color=colormap(float(point['Atypicité'])),
-                fill_opacity=1,
-                popup=point['ID']
-                ).add_to(group)
-        else : 
             for i in range(N): # on affiche les N marqueurs
                 point = df.iloc[i]
                 folium.CircleMarker(
