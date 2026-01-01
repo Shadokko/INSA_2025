@@ -175,66 +175,54 @@ def compute_center(data):
     return (lat_center, lon_center), zoom
 
 
-
-def add_markers(df, colormap, group, annotated=[], N=0):
-    """
-    Ajoute les N premiers marqueurs sur la carte, parmi les données filtrées
-
-    Parameters
-    ----------
-    df : pandas data frame
-        tableau contenant les données filtrées
-        
-    colormap : branca colormap
-        échelle de couleur du vert au violet pour représenter l'atypicité
-        
-    group : folium.FeatureGroup()
-        groupe de marqueurs
-        
-    N : int
-        nombre d'observations à afficher sur la carte
-        
-    Returns
-    -------
-    filtered_data : pandas data frame
-        tableau contenant les données filtrées
-    """  
-    
-    if type(df) != type(None): #si le dataframe n'est pas vide
-        if N == 0: # si le nombre d'observations à afficher est celui par défaut
-            N = len(df) # alors on affiche toutes les données
-        else:
-            N = min(N, len(df)) # sinon, on affiche les N premières observations filtrées, ou toutes s'il y en a moins de N
-        
-
-    return group
-
-
 # @st.cache_data
-def make_map(df, colormap, N=30, toggle_clusters=False, toggle_dpt=False, annotated=[],
+def make_map(df, colormap, toggle_clusters=False, toggle_dpt=False, annotated=[],
              center=__GRENOBLE__, zoom_start=8):
-    """
-    Ajoute les N premiers marqueurs sur la carte, parmi les données filtrées
+    """Créer une carte Folium contenant les observations filtrées.
 
-    Parameters
+    La fonction crée une instance de :class:`folium.Map`, y ajoute éventuellement
+    la couche GeoJSON du département si `st.session_state.dpt` est vrai, puis
+    construit un :class:`folium.FeatureGroup` nommé "observations" et y ajoute
+    des ``CircleMarker`` pour chaque ligne de ``df``. Les marqueurs ont des
+    tailles différentes selon qu'une observation est dans la liste
+    ``annotated`` (petit) ou qu'elle correspond à l'identifiant sélectionné
+    stocké dans ``st.session_state.id_obs`` (plus grand).
+
+    Paramètres
     ----------
-    f_data : pandas data frame
-        tableau contenant les données filtrées
-        
-    colormap : branca colormap
-        échelle de couleur du vert au violet pour représenter l'atypicité
-        
-    N : int
-        nombre d'observations à afficher sur la carte
+    df : pandas.DataFrame
+        DataFrame contenant les observations filtrées. Doit contenir au moins
+        les colonnes : ``Latitude``, ``Longitude``, ``ID``, ``Nom flore``,
+        ``Atypicité``.
+    colormap : branca.colormap
+        Colormap utilisée pour déterminer la couleur de remplissage des marqueurs
+        en fonction de la valeur d'atypicité.
+    toggle_clusters : bool, optional
+        Si True, les marqueurs sont ajoutés à un ``MarkerCluster`` (par défaut
+        False).
+    toggle_dpt : bool, optional
+        Option prévue pour afficher le département (non utilisée directement
+        car l'affichage du département se fait via ``st.session_state.dpt``).
+    annotated : list, optional
+        Liste d'IDs d'observations déjà annotées (affichées avec un rayon réduit).
+    center : tuple, optional
+        Coordonnées (lat, lon) utilisées comme centre de la carte si le
+        calcul automatique échoue (par défaut ``__GRENOBLE__``).
+    zoom_start : int, optional
+        Niveau de zoom initial de la carte.
 
-    toggle_clusters : boolean
-        option pour afficher les observations sous forme condensée ou pas      
-        
     Returns
     -------
-    st_folium
-        carte
+    folium.Map, folium.FeatureGroup
+        L'objet ``folium.Map`` créé et le ``FeatureGroup`` contenant les
+        marqueurs.
+
+    Notes
+    -----
+    Cette fonction ne doit pas être décorée avec ``@st.cache_data`` car les
+    objets Folium ne sont pas sérialisables par le cache de Streamlit.
     """
+
     try:
         center, zoom_start = compute_center(df)
     except:
@@ -248,6 +236,7 @@ def make_map(df, colormap, N=30, toggle_clusters=False, toggle_dpt=False, annota
 
     for index, row in df.iterrows(): # on affiche les N marqueurs
         if int(row['ID']) in annotated: radius = 3
+        elif st.session_state.id_obs == int(row['ID']): radius = 15
         else: radius = 7
         folium.CircleMarker(location=list(row.loc[['Latitude', 'Longitude']]),
                             radius=radius,
@@ -266,7 +255,7 @@ def make_map(df, colormap, N=30, toggle_clusters=False, toggle_dpt=False, annota
         group_1.add_to(map_)
 
 
-    return map_
+    return map_, group_1
     # return st_folium(map_, width=width, height=height, key=key, on_change=callback)
 
 
@@ -415,19 +404,15 @@ if __name__ == "__main__":
             sub_col_carte_1, sub_col_carte_2 = st.columns(2)
             
             sub_col_carte_1.subheader("Carte des observations")
-            if type(st.session_state.filtered_data) != type(None): # si les donnees ont ete filtrees par l'utilisateur
-                st.session_state.filters["N"] = sub_col_carte_2.slider("Combien d'observations afficher ?", min_value=1, max_value=100, value=30, step=1)
-            else :
-                st.session_state.filters["N"] = 50
             
             if type(st.session_state.filtered_data) == type(None):
                 st.write("Veuillez filtrer les données")
             elif len(st.session_state.filtered_data) == 0:
                 st.error("Aucune observation ne correspond à ces critères")
             else :
-                map1 = make_map(st.session_state.filtered_data,
+                
+                map1, group1 = make_map(st.session_state.filtered_data,
                                 colormap,
-                                N=st.session_state.filters["N"], 
                                 annotated= st.session_state.output_data['ID'].to_list(),
                                 toggle_clusters=clusters, 
                                 toggle_dpt=st.session_state.dpt)
@@ -435,7 +420,10 @@ if __name__ == "__main__":
                 st_data1 = st_folium(map1, key='map1', 
                                      width=__width__)
         
+                # st.session_state.id_obs, st.session_state.last = update_id_obs(st_data1, st.session_state.id_obs, st.session_state.last)
 
+
+        ###################################################
 
         with col_data:
             if type(st.session_state.filtered_data) == type(None):
@@ -447,7 +435,6 @@ if __name__ == "__main__":
                     
                 st.subheader("Annotation de l'observation")
                 # Update the selected id from the map component early so it is preserved across reruns
-                st.session_state.id_obs, st.session_state.last = update_id_obs(st_data1, st.session_state.id_obs, st.session_state.last)
 
                 st.session_state.validation_status = st.radio("Validation de la donnée:", ['Je confirme', 'Donnée douteuse', "Donnée fausse"])
 
@@ -490,7 +477,7 @@ if __name__ == "__main__":
    
         if type(st.session_state.filtered_data) != type(None):
             st.subheader(f"Données brutes (n = {len(st.session_state.filtered_data)})")
-            select_row = st.dataframe(st.session_state.filtered_data.head(st.session_state.filters["N"]), 
+            select_row = st.dataframe(st.session_state.filtered_data.head(100), 
                         hide_index=True, 
                         selection_mode="single-row",
                         on_select="rerun",
