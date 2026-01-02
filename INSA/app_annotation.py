@@ -10,6 +10,7 @@ import numpy as np
 import branca.colormap as cm
 import debugpy
 from INSA.templates import add_template2map
+from INSA.database_management import get_mEsp_liste
 import time
 
 st.set_page_config(layout="wide")
@@ -22,6 +23,9 @@ yaml=YAML(typ='safe')   # default, if not specfied, is 'rt' (round-trip)
 params = yaml.load(path2param)
 DATA_PATH = params['DATA_PATH']
 print(f"Data path: {Path(DATA_PATH).resolve()}\n")
+
+species_list_path = params['species_list_path']
+print(f"Species list path: {Path(species_list_path).resolve()}\n")
 
 export_path = Path(params['export_path'])
 print(f"Export path: {export_path.resolve()}\n")
@@ -89,7 +93,6 @@ def load_data(filename):
     especes : list
         liste des espcèces présentes dans les données, sans répétition
     """
-    # TODO: would be nice to have either a drag'n'drop option to upload a new data file, or a file selector with a browser
     chunk_size = 10_000 # les données seront chargées par paquets pour aller plus vite
     chunks = [] # liste qui contiendra tous les paquets de données
 
@@ -99,7 +102,19 @@ def load_data(filename):
     data["ID"] = data.index # on rajoute une colonne ID qui nous permettra d'identifier chaque ligne de façon unique
     data["Atypicité"] = compute_atypicity(data, data, "rank_ground_truth")
     observateurs = list(data["PrenomNom"].unique())
-    especes = list(data[species_column].unique())
+
+    # Loading species list, with a backup plan in case of failure
+    try:
+        especes = get_mEsp_liste(species_list_path)
+        especes_not_in_data = [espece for espece in data[species_column].unique() if espece not in especes]
+        if len(especes_not_in_data) > 0:
+            st.write(f"Attention : {len(especes_not_in_data)} espèces présentes dans les données mais absentes de la base d'espèces InFloris. Elles seront ajoutées à la liste des espèces.")
+        especes.extend(especes_not_in_data)
+    except Exception as e:
+        st.write(f"Erreur de chargement de la base d'espèces InFloris (chemin: {species_list_path}). Erreur: {e}")
+        st.write("La liste des espèces sera extraite des données chargées.")
+        especes = list(data[species_column].unique())
+
     for i in ["espece", "longitude", "latitude", "micro", "remarque"]:
         if not f"annotation_{i}" in data.columns: # do not erase existing validation annotations
             data[f"annotation_{i}"] = None
@@ -107,8 +122,8 @@ def load_data(filename):
         data["validation"] = None
     else:
         data["validation"] = data["validation"].fillna(None)
+    st.success(f"Données chargées avec succès: {len(data)} observations, {len(observateurs)} observateurs, {len(especes)} espèces.")
     return data, observateurs, especes
-
 
 @st.cache_data
 def filter_data(data, filters):
@@ -240,12 +255,9 @@ def make_map(df, colormap, toggle_clusters=False, toggle_dpt=False, annotated=[]
         if int(row['ID']) in annotated: radius = 3
         else: radius = 7
 
-        if st.session_state.id_obs == int(row['ID']): color="red"
-        else: color='black'
-
         folium.CircleMarker(location=list(row.loc[['Latitude', 'Longitude']]),
                             radius=radius,
-                            color=color,
+                            color="black",
                             fill=True,
                             fill_color=colormap(float(row.loc['Atypicité'])),
                             fill_opacity=1,
@@ -265,13 +277,49 @@ def make_map(df, colormap, toggle_clusters=False, toggle_dpt=False, annotated=[]
 
 
 def update_id_obs(st_data, current, last):
-    if type(st_data['last_object_clicked_popup']) == type(None):
+    """
+    Robustly update selected observation id from folium event data.
+
+    Supports 'last_object_clicked_popup' (popup text containing 'ID : <n>'),
+    'last_object_clicked' with an 'id' field, or a lat/lng dict (matches nearest marker).
+    """
+    import re
+    new = None
+    popup = st_data.get('last_object_clicked_popup') if isinstance(st_data, dict) else None
+    clicked = st_data.get('last_object_clicked') if isinstance(st_data, dict) else None
+
+    if popup:
+        m = re.search(r'ID\s*:\s*(\d+)', popup)
+        if m:
+            try:
+                new = int(m.group(1))
+            except:
+                new = None
+    elif clicked:
+        if isinstance(clicked, dict):
+            if 'id' in clicked:
+                try:
+                    new = int(clicked['id'])
+                except:
+                    new = None
+            elif ('lat' in clicked) and ('lng' in clicked):
+                try:
+                    lat = float(clicked['lat'])
+                    lng = float(clicked['lng'])
+                    df = st.session_state.filtered_data
+                    if df is not None and len(df) > 0:
+                        distances = (df['Latitude'] - lat)**2 + (df['Longitude'] - lng)**2
+                        nearest_idx = distances.idxmin()
+                        new = int(df.at[nearest_idx, 'ID'])
+                except:
+                    new = None
+
+    if new is None:
         return (current, last)
     else:
-        new = int(st_data['last_object_clicked_popup'].split()[2])
         if new == current:
             return (current, last)
-        else :
+        else:
             return (new, current)
 
 @st.cache_data
@@ -286,7 +334,12 @@ def afficher_metadonnees(data, id_obs, output_data):
 
     if id_obs in output_data['ID'].to_list():
         lines.append(":green[observation annotée]")
-        lines.append(f"Statut: :green[{output_data.loc[output_data['ID']==id_obs, 'validation'].values[0]}]")
+
+        if output_data.loc[output_data['ID']==id_obs, 'validation'].values[0] == "Je confirme": color = "green"
+        elif output_data.loc[output_data['ID']==id_obs, 'validation'].values[0] == "Donnée douteuse": color = "orange"
+        else: color = "red"
+ 
+        lines.append(f"Statut: :{color}[{output_data.loc[output_data['ID']==id_obs, 'validation'].values[0]}]")
 
         annotations_espece = output_data.loc[output_data['ID']==id_obs, 'annotation_espece'].values        
         # if len(annotations_espece != 1):
@@ -356,20 +409,39 @@ def save_annotations(data, export_path):
     data.to_csv(export_path, sep=";", index=False)
     st.success(f"Données exportées vers {export_path.resolve()}")
 
-def _save_annotation(id_obs, validation_status, selected_species):
+def _save_annotation(id_obs, validation_key):
     """
     Save the selected observation to the in-memory output table. (which will later be saved as csv through save_annotations)
 
-    Avoids duplicates
+    Avoids duplicates. Also stores the selected 'annotation_espece' if present in the form state.
     """
     if id_obs is None:
         st.error("Aucune observation sélectionnée — impossible de sauvegarder.")
         return
-    
+
+    # read the current validation status from session state using the provided key
+    validation_status = st.session_state.get(validation_key, None)
+
+    # Get the currently selected annotated species for this observation (if any)
+    select_key = f"select_espece_{id_obs}"
+    annotation_espece = st.session_state.get(select_key, None)
+
+    row = data.loc[data["ID"]==id_obs].copy()
+    # ensure annotation_espece column exists
+    if 'annotation_espece' not in row.columns:
+        row['annotation_espece'] = None
+    if annotation_espece is not None:
+        row.loc[:, 'annotation_espece'] = annotation_espece
+
+    row = row.assign(validation=validation_status)
+
     st.session_state.output_data = pd.concat([
         st.session_state.output_data,
-        data.loc[data["ID"]==id_obs].assign(validation=validation_status, annotation_espece=selected_species)
+        row
     ], ignore_index=True).drop_duplicates(subset=['ID'], keep='last')
+
+    st.success(f"Annotation sauvegardée pour l'observation ID {id_obs}.")
+
 
 
 if __name__ == "__main__":
@@ -439,7 +511,6 @@ if __name__ == "__main__":
 
         ###################################################
         # Affichage de la carte
-
         with col_carte:
             sub_col_carte_1, sub_col_carte_2 = st.columns(2)
             
@@ -450,7 +521,6 @@ if __name__ == "__main__":
             elif len(st.session_state.filtered_data) == 0:
                 st.error("Aucune observation ne correspond à ces critères")
             else :
-                
                 map1, group1 = make_map(st.session_state.filtered_data,
                                 colormap,
                                 annotated= st.session_state.output_data['ID'].to_list(),
@@ -463,53 +533,69 @@ if __name__ == "__main__":
                 st.session_state.id_obs, st.session_state.last = update_id_obs(st_data1, st.session_state.id_obs, st.session_state.last)
 
 
-        ###################################################
-
+        #########################
+        # Formulaire d'annotation
         with col_annot:
 
-            #########################
-            # Formulaire d'annotation
-                
+            st.subheader("Formulaire d'annotation")    
             if type(st.session_state.filtered_data) == type(None):
                 st.write("Veuillez filtrer les données")
             elif st.session_state.id_obs is None: # si aucune observation n'a ete selectionnee
                 st.write("Veuillez cliquer sur une observation pour l'annoter")
             else: 
+                st.session_state.id_obs, st.session_state.last = update_id_obs(st_data1, st.session_state.id_obs, st.session_state.last)
                 st.button("Exporter les annotations", on_click=lambda: save_annotations(st.session_state.output_data, export_path))
      
-                with st.form(key="annotation"):
+                form_key = f"annotation_{st.session_state.id_obs}"
+                select_key = f"select_espece_{st.session_state.id_obs}"
+                validation_key = f"validation_{st.session_state.id_obs}"
+
+                with st.form(key=form_key):
                     st.subheader("Annotation de l'observation")
                     # Update the selected id from the map component early so it is preserved across reruns
 
-                    default_espece = st.session_state.filtered_data.at[st.session_state.id_obs, species_column]
+                    id_obs = st.session_state.id_obs
+
+                    # Prefer previously saved annotation (in output_data) if present, otherwise use recorded species
+                    default_espece = None
+                    if hasattr(st.session_state, "output_data") and not st.session_state.output_data.empty:
+                        prev = st.session_state.output_data.loc[st.session_state.output_data['ID']==id_obs, 'annotation_espece']
+                        if not prev.empty and pd.notna(prev.iloc[-1]):
+                            default_espece = prev.iloc[-1]
+
+                    if default_espece is None and (st.session_state.filtered_data is not None) and (id_obs in st.session_state.filtered_data.index):
+                        if st.session_state.filtered_data.at[id_obs, 'annotation_espece'] and pd.notna(st.session_state.filtered_data.at[id_obs, 'annotation_espece']):
+                            default_espece = st.session_state.filtered_data.at[id_obs, 'annotation_espece']
+                        else:
+                            default_espece = st.session_state.filtered_data.at[id_obs, species_column] if id_obs in st.session_state.filtered_data.index else None
+
                     if default_espece in especes:
                         default_index = especes.index(default_espece)
                     else:
                         default_index = 0
-                    st.session_state.selected_species = st.selectbox(f"Modifier l'espèce (initialement: {default_espece})", 
-                                                                     especes, index=default_index)
 
-                    st.session_state.validation_status = st.radio("Validation de la donnée:", ['Je confirme', 'Donnée douteuse', "Donnée fausse"])
-                    # action = st.selectbox("Que souhaitez-vous faire ?", actions_possibles, index=None, placeholder="Veuillez choisir une option")
-                    # annoter(data, action, st.session_state.id_obs, especes)
+                    st.selectbox(f"Modifier l'espèce (Valeur initiale: {default_espece})", especes, index=default_index, key=select_key)
 
-                    st.form_submit_button("Sauvegarder l'annotation", on_click=_save_annotation, args=(st.session_state.id_obs, 
-                                                                                                       st.session_state.validation_status, 
-                                                                                                       st.session_state.selected_species))
+                    # validation radio should also be unique per observation so it resets on id change
+                    st.radio("Validation de la donnée:", ['Je confirme', 'Donnée douteuse', "Donnée fausse"], key=validation_key)
 
-                # actions_possibles = ["Modifier l'espèce/le nom de l'espèce", "Modifier la position", "Signaler un micro-milieux", "Valider l'observation", "Autre"]
-                # action = st.selectbox("Que souhaitez-vous faire ?", actions_possibles, index=None, placeholder="Veuillez choisir une option")
-                # annoter(data, action, st.session_state.id_obs, especes)
+                    # pass the validation widget key so the callback reads the current value at execution time
+                    st.form_submit_button("Sauvegarder l'annotation", on_click=_save_annotation, args=(id_obs, validation_key))
 
-                ###################################################
-                # Affichage des metadonnees
-            with col_meta:
-                st.subheader("Metadonnées de l'observation")
 
-                # st.session_state.id_obs, st.session_state.last = update_id_obs(st_data1, st.session_state.id_obs, st.session_state.last)
+        ###################################################
+        # Affichage des metadonnees
+        with col_meta:
+            st.subheader("Metadonnées de l'observation")
+            if type(st.session_state.filtered_data) == type(None):
+                st.write("Veuillez filtrer les données")
+            elif st.session_state.id_obs is None: # si aucune observation n'a ete selectionnee
+                st.write("Veuillez cliquer sur une observation pour afficher ses métadonnées")
+            else: 
+                st.session_state.id_obs, st.session_state.last = update_id_obs(st_data1, st.session_state.id_obs, st.session_state.last)
                 afficher_metadonnees(st.session_state.filtered_data, 
-                                     st.session_state.id_obs, 
-                                     st.session_state.output_data)
+                            st.session_state.id_obs, 
+                            st.session_state.output_data)
 
 
     ###################################################
