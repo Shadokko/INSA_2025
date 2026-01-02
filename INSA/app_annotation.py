@@ -12,6 +12,18 @@ import debugpy
 from INSA.templates import add_template2map
 from INSA.database_management import get_mEsp_liste
 import time
+import re
+
+"""
+Outil d'annotation (Streamlit) pour des observations floristiques.
+
+Ce module fournit :
+- le chargement et le filtrage des données
+- le calcul d'un score d'atypicité
+- la création d'une carte Folium pour visualiser les observations
+- l'interface d'annotation et l'export des annotations
+- l'affichage des métadonnées associées aux observations
+"""
 
 st.set_page_config(layout="wide")
 
@@ -41,37 +53,52 @@ species_column = params['species_column']
 __GRENOBLE__ = (45.0106, 9.4330)
 colormap = cm.LinearColormap(["green", "yellow", "red", "purple"], vmin=0, vmax=10, caption="échelle d'atypicité")
 
+
+# TODO: ajouter l'inférence et la détermination de rank_ground_truth, en faisant appel à un modèle pré-entraîné
+# TODO: ajouter la "Note" d'Alain comme option, ainsi que la fréquence, et proposer un indicateur synthétique. Une classe atypicité pourra être créée.
 @st.cache_data
 def compute_atypicity(filtered_data, data, method):
     """
-    Ajoute une colonne "score d'atypicité" aux données
+    Calcule un score d'atypicité normalisé sur l'échelle 0-10, et ajoute une colonne "Atypicité" correspondante
+
+    Le calcul actuel normalise la colonne "rank_ground_truth" présente dans
+    ``filtered_data`` en utilisant l'étendue (min/max) calculée sur ``data``
+    (l'ensemble complet) pour garantir une échelle cohérente entre sous-ensembles.
 
     Parameters
     ----------
-    filtered_data : pandas data frame
-        tableau contenant les données filtrées
+    filtered_data : pandas.DataFrame
+        DataFrame contenant les observations filtrées (doit contenir
+        ``rank_ground_truth``).
+    data : pandas.DataFrame
+        DataFrame complet utilisé pour déterminer l'échelle (min/max).
+    method : str
+        Méthode de calcul. Actuellement pris en charge : ``"rank_ground_truth"``.
 
-    data : pandas data frame
-        tableau contenant les données non filtrées 
-        (note: nécessaire pour avoir une échelle cohérente quel que soit le sous-échantillon. Evite aussi une division par zéro si une seule valeur de rang)
-        
-    method : string
-        méthode utilisée pour calculer le score 
-        ["rank_ground_truth"]
-        
     Returns
     -------
-    filtered_data : pandas data frame
-        tableau contenant les données filtrées
-    """  
-    
+    numpy.ndarray
+        Tableau 1D (ou Series convertible) contenant le score d'atypicité pour
+        chaque ligne de ``filtered_data`` (valeurs entre 0 et 10).
+
+    Notes
+    -----
+    Si la plage (max-min) vaut 0 (toutes les valeurs identiques), la fonction
+    renvoie un vecteur de zéros pour éviter une division par zéro.
+    """
+
     match method:
         case "rank_ground_truth":
-            return 10*(filtered_data["rank_ground_truth"]-np.min(data["rank_ground_truth"]))/(np.max(data["rank_ground_truth"])-np.min(data["rank_ground_truth"]))
+            minv = np.min(data["rank_ground_truth"])
+            maxv = np.max(data["rank_ground_truth"])
+            denom = maxv - minv
+            if denom == 0:
+                # Si toutes les valeurs sont identiques, on renvoie des zéros
+                return np.zeros(len(filtered_data))
+            return 10 * (filtered_data["rank_ground_truth"] - minv) / denom
 
-# TODO: create an sqlite database with password by user, and propose the option to load only user specific data
-# Using sqlite would allow to make the loading faster, with a table with only in lat/lon/date/species/observer data, and other tables with other metadata
-
+# TODO: charger aussi une liste de milieux "villaret", à des fins d'annotations milieux
+# TODO: charger les annotations déjà effectuée en initialisant st.session_state.output_data
 @st.cache_data
 def load_data(filename):
     """
@@ -278,12 +305,30 @@ def make_map(df, colormap, toggle_clusters=False, toggle_dpt=False, annotated=[]
 
 def update_id_obs(st_data, current, last):
     """
-    Robustly update selected observation id from folium event data.
+    Met à jour l'ID de l'observation sélectionnée à partir des données
+    d'évènement renvoyées par le composant Folium / Streamlit-Folium.
 
-    Supports 'last_object_clicked_popup' (popup text containing 'ID : <n>'),
-    'last_object_clicked' with an 'id' field, or a lat/lng dict (matches nearest marker).
+    La fonction gère plusieurs formats possibles renvoyés par le composant :
+    - ``last_object_clicked_popup`` : texte du popup contenant "ID : <n>"
+    - ``last_object_clicked`` : dictionnaire avec un champ ``id``
+    - ``last_object_clicked`` : dictionnaire avec ``lat`` et ``lng`` — on recherche
+      alors le marqueur le plus proche parmi ``st.session_state.filtered_data``.
+
+    Parameters
+    ----------
+    st_data : dict
+        Données issues du composant Folium (clés possibles listées ci-dessus).
+    current : int | None
+        ID actuellement sélectionné.
+    last : int | None
+        ID précédemment sélectionné (utilisé pour historique/back-navigation).
+
+    Returns
+    -------
+    tuple (new_current, new_last)
+        Tuples d'IDs mis à jour. Si aucun changement détecté, retourne (current, last).
     """
-    import re
+
     new = None
     popup = st_data.get('last_object_clicked_popup') if isinstance(st_data, dict) else None
     clicked = st_data.get('last_object_clicked') if isinstance(st_data, dict) else None
@@ -325,7 +370,23 @@ def update_id_obs(st_data, current, last):
 @st.cache_data
 def afficher_metadonnees(data, id_obs, output_data):
     """
-    Affiche les métadonnées associées à une observation
+    Affiche, via Streamlit, les métadonnées et le statut d'annotation d'une
+    observation sélectionnée.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        DataFrame contenant les observations (index attendu égal à l'ID).
+    id_obs : int
+        Identifiant de l'observation à afficher.
+    output_data : pandas.DataFrame
+        Table des annotations sauvegardées (permet d'afficher le statut de
+        validation et les corrections déjà enregistrées).
+
+    Notes
+    -----
+    La fonction construit une liste de lignes préformatées (avec du Markdown)
+    et l'affiche en une seule fois pour éviter un espacement vertical excessif.
     """
     
     # index_in_filtered_data = int(data["ID"].to_list().index(id_obs))
@@ -374,6 +435,17 @@ def afficher_metadonnees(data, id_obs, output_data):
 
 @st.cache_data
 def afficher_metadonnees_releve(data, id_obs):
+    """
+    Affiche des informations complémentaires sur le relevé auquel
+    appartient l'observation sélectionnée (code, date, nombre d'observations).
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        DataFrame contenant les observations.
+    id_obs : int
+        Identifiant de l'observation.
+    """
     st.write("------")
     st.write(f"code relevé : {data.at[id_obs, 'Code_Releve']}")
     st.write(f"date relevé : {data.at[id_obs, 'Date_Releve']}")
@@ -381,29 +453,49 @@ def afficher_metadonnees_releve(data, id_obs):
 
 
 actions_possibles = ["Modifier l'espèce/le nom de l'espèce", "Signaler un micro-milieux"]
-def annoter(data, id_obs, especes):
-    if action!=None:
-        match action:
-            case "Modifier l'espèce/le nom de l'espèce":
-                st.session_state.output_data.at[id_obs, "annotation_espece"] = st.selectbox("Nom de l'espèce", especes)
-    #                 data.at[id_obs, "annotation_espece"] = st.selectbox("Nom de l'espèce", especes)
-    #             case "Modifier la position":
-    #                 data.at[id_obs, "annotation_latitude"] = st.text_input("Latitude", "")
-    #                 data.at[id_obs, "annotation_longitude"] = st.text_input("Longitude", "")
-            case "Signaler un micro-milieux":
-                st.session_state.output_data.at[id_obs, "annotation_micro"] = st.text_area("Description", "")
-    #             case "Valider l'observation":
-    #                 data.at[id_obs, "annotation_validation"] = st.checkbox("Je confirme l'observation")
-    #             case "Autre":
-    #                 data.at[id_obs, "annotation_remarque"] = st.text_area("Autres remarques", "")
-    #         st.form_submit_button(label="Enregistrer") # validation de l'annotation
+
+def annoter(data, action, id_obs, especes):
+    """
+    Effectue une action d'annotation sur une observation donnée.
+
+    Cette fonction modifie la table d'annotations en mémoire
+    (``st.session_state.output_data``) en fonction de l'action choisie.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        DataFrame contenant les observations (non modifié directement ici).
+    action : str
+        Action choisie (une des valeurs de ``actions_possibles``).
+    id_obs : int
+        Identifiant de l'observation ciblée.
+    especes : list
+        Liste des espèces possibles (utilisée pour la sélection).
+    """
+    if action is None:
+        return
+
+    match action:
+        case "Modifier l'espèce/le nom de l'espèce":
+            st.session_state.output_data.at[id_obs, "annotation_espece"] = st.selectbox("Nom de l'espèce", especes)
+        case "Signaler un micro-milieux":
+            st.session_state.output_data.at[id_obs, "annotation_micro"] = st.text_area("Description", "")
+    # Autres actions possibles (position, validation, remarque) sont commentées
+    # et prêtes à être implémentées si nécessaire.
 
 def save_annotations(data, export_path):
     """
-    Saves (exports) ALL annotations to a CSV file
-    
-    :param data: Description
-    :param export_path: Description
+    Exporte la table d'annotations vers un fichier CSV horodaté.
+
+    Le fichier de sortie est créé à partir de ``export_path`` en ajoutant
+    un suffixe de date/heure pour éviter d'écraser les exports précédents.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        Table des annotations à exporter.
+    export_path : pathlib.Path
+        Chemin de base pour l'export (le timestamp sera ajouté au nom).
     """
     export_path = export_path.parent / (export_path.stem + time.asctime().replace(" ", "_").replace(":", "-") + export_path.suffix)
     data.to_csv(export_path, sep=";", index=False)
@@ -411,13 +503,33 @@ def save_annotations(data, export_path):
 
 def _save_annotation(id_obs, validation_key):
     """
-    Save the selected observation to the in-memory output table. (which will later be saved as csv through save_annotations)
+    Sauvegarde en mémoire (session) l'annotation d'une observation sélectionnée.
 
-    Avoids duplicates. Also stores the selected 'annotation_espece' if present in the form state.
+    Cette fonction lit l'état des widgets liés à l'observation (clé de
+    validation et sélection d'espèce) dans ``st.session_state`` et met à jour
+    ``st.session_state.output_data`` en conservant la dernière valeur par ID.
+
+    Parameters
+    ----------
+    id_obs : int
+        ID de l'observation à sauvegarder.
+    validation_key : str
+        Clé utilisée dans ``st.session_state`` pour lire l'état du widget
+        de validation (par ex. "validation_<id>").
+
+    Notes
+    -----
+    - La fonction s'appuie sur la variable globale ``data`` pour récupérer la
+      ligne correspondant à l'ID (cette variable est définie au niveau module
+      lors du chargement initial).
+    - Si ``st.session_state.output_data`` n'existe pas encore, elle l'initialise.
     """
     if id_obs is None:
         st.error("Aucune observation sélectionnée — impossible de sauvegarder.")
         return
+
+    if 'output_data' not in st.session_state:
+        st.session_state.output_data = pd.DataFrame(columns=data.columns)
 
     # read the current validation status from session state using the provided key
     validation_status = st.session_state.get(validation_key, None)
@@ -442,10 +554,7 @@ def _save_annotation(id_obs, validation_key):
 
     st.success(f"Annotation sauvegardée pour l'observation ID {id_obs}.")
 
-
-
 if __name__ == "__main__":
-    # st.sidebar.title("Outil d'annotation")
 
     tab1, tab2 = st.tabs(["Visu&Annotation", "Statistiques"])
 
@@ -575,6 +684,11 @@ if __name__ == "__main__":
                         default_index = 0
 
                     st.selectbox(f"Modifier l'espèce (Valeur initiale: {default_espece})", especes, index=default_index, key=select_key)
+                    
+                    # TODO: ajouter une option d'annotation milieu/micromilieu, en faisant appel à la liste Villaret. 
+                    # La proposition des milieux peut être faite en fonction de l'espèce considérée (selon qu'elle est présente dans la liste d'espèce du dictionnaire ou non)
+
+                    # TODO: ajouter une option de modification de la position, en utilisant un pointage sur la carte interactive
 
                     # validation radio should also be unique per observation so it resets on id change
                     st.radio("Validation de la donnée:", ['Je confirme', 'Donnée douteuse', "Donnée fausse"], key=validation_key)
