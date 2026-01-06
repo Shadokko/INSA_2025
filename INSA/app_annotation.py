@@ -9,8 +9,8 @@ from ruamel.yaml import YAML
 import numpy as np 
 import branca.colormap as cm
 import debugpy
-from INSA.templates import add_template2map
-from INSA.database_management import get_mEsp_liste
+from templates import add_template2map
+from database_management import get_mEsp_liste
 import time
 import re
 
