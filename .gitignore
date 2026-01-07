@@ -213,6 +213,7 @@ insa_2025
 experiments
 data
 databases
+output
 
 # saving some specific folders and files
 !*/readme*.md

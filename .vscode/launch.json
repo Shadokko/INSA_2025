@@ -1,0 +1,41 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+
+        {
+        "name": "Attach to Streamlit (debugpy)",
+        "type": "python",
+        "request": "attach",
+        "connect": { "host": "localhost", "port": 5678 },
+        "pathMappings": [
+            { "localRoot": "${workspaceFolder}", "remoteRoot": "${workspaceFolder}" }
+        ]
+        },
+
+        {
+        "name": "Launch Streamlit",
+        "type": "python",
+        "request": "launch",
+        "module": "streamlit",
+        "args": ["run", "INSA/app_annotation.py"],
+        "cwd": "${workspaceFolder}",
+        "console": "integratedTerminal",
+        "subProcess": true,
+        "justMyCode": false
+        },
+
+        {
+            "name": "Debug Current Python File",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "justMyCode": false
+        }
+    ]
+}
+
