@@ -23,6 +23,7 @@ path2param = Path(__file__).parent / "params.yml"
 
 print(f"Loading parameter file: {path2param.resolve()}")
 yaml=YAML(typ='safe')   # default, if not specfied, is 'rt' (round-trip)
+# TODO : fonction cachée
 params = yaml.load(path2param)
 DATA_PATH = params['DATA_PATH']
 # DATA_PATH = "../../result_export.csv"
