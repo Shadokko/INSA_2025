@@ -4,25 +4,38 @@ Terminé :
 Mise en place de l'environnement virtuel (IDE, libraries)
 Prise en main de Streamlit
 Prise en main de Streamlit-Folium
-Prototypage de l'UI : carte et filtres
+Prototypage de l'UI : carte et filtres (date, espèce, observateur)
 Problème : Chargement de la carte (résolu)
-Ajout d'interactivité pour permettre l'annotation et la visualisation des métadonnées
+Ajout d'interactivité pour permettre l'annotation et la visualisation des métadonnées (récupération de id_obs)
 Ajout d'une vue groupée/synthétique des observations
 Ajout d'un filtre sur l'atypicité
 Ajout d'un code couleur représentant l'atypicité
-Ajout d'un onglet d'annotations (carte, métadonnées)
-Ajout d'une option "Afficher les données du relevé"
-Ajout d'une option "Afficher les autres observations de l'espèce"
+Ajout d'un onglet d'annotations (carte, métadonnées) (retiré : fusion avec 1er onglet)
+Ajout d'une option "Afficher les données du relevé" (retiré : basculé sur 2e onglet)
+Ajout d'une option "Afficher les autres observations de l'espèce" (retiré : basculé sur 2e onglet)
 Ajout de colonnes pour l'annotation
+Ajout des annotations et d'un bouton "exporter les annotations" (N. Faure)
+Ajout d'un filtre pour afficher seulement les x observations les plus atypiques (N. Faure)
+Renvoyer les chemins d'accès, paramètres, constants, etc. dans un fichier de config séparé (en .yml) (N. Faure)
+Réorganisation du 1er onglet pour la visualisation et l'annotation (N. Faure)
+Réorganisation du 2e onglet pour les statistiques et visualisation plus avancée (Carte de l'espèce, Autres observations du relevé)
+Organisation en 3 compartiments pour une meilleure lisibilité
+Ajout d'un histogramme pour visualiser l'atypicité de l'observation par rapport au reste de l'espèce
+Importation des données de Villaret
+Calcul de l'indice de Jaccard entre les relevés et les communautés floristiques de Villaret
+Ajout d'un filtre sur l'ID de l'observation
+Ajout profil écologique du relevé avec indices d'Ellenberg
+Traduction en français des dates
+Amélioration visuelle des graphiques du 2e onglet (grid et xlabel)
+Ajout de bulles d'informations pour expliquer les résultats du 2e onglet
+Affichage de messages explicatifs quand il n'y a aucune correspondance pour l'indice de Jaccard (Villaret) ou le profil écologique (indices d'Ellenberg)
+
 
 En cours :
 Lier le tableau de données affiché à la carte et aux métadonnées affichées
 Problème : Chargement des données trop long (partiellement résolu)
 Prise en main et comparaison des métriques d'atypicité déjà  implémentées dans les modèles fournis
-Problème : Réutilisation du code fourni, dépendances manquantes (en cours de résolution)
 
 À venir : 
 Implement a drag'n'drop option to upload a new data file, or a file selector with a browser
-Ajout des annotations et d'un bouton "exporter les annotations"
-Renvoyer les chemins d'accès, paramètres, constants, etc. dans un fichier de config séparé (en .yml)
 Ajout d'un code couleur représentant les données déjà vérifiées

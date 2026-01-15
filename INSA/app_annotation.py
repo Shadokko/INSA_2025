@@ -13,6 +13,7 @@ from templates import add_template2map
 from database_management import get_mEsp_liste
 import time
 import re
+import matplotlib.pyplot as plt
 
 """
 Outil d'annotation (Streamlit) pour des observations floristiques.
@@ -37,6 +38,12 @@ params = yaml.load(path2param)
 DATA_PATH = params['DATA_PATH']
 print(f"Data path: {Path(DATA_PATH).resolve()}\n")
 
+VILLARET_PATH = params['VILLARET_PATH']
+print(f"Data path: {Path(VILLARET_PATH).resolve()}\n")
+
+FACT_PATH = params['FACT_PATH']
+print(f"Data path: {Path(FACT_PATH).resolve()}\n")
+
 species_list_path = params['species_list_path']
 print(f"Species list path: {Path(species_list_path).resolve()}\n")
 
@@ -45,6 +52,7 @@ print(f"Export path: {export_path.resolve()}\n")
 
 ISERE = params['ISERE']
 __width__ = params['width']
+__height__ = params['height']
 species_column = params['species_column']
 
 
@@ -98,7 +106,7 @@ def compute_atypicity(filtered_data, data, method):
                 return np.zeros(len(filtered_data))
             return 10 * (filtered_data["rank_ground_truth"] - minv) / denom
 
-# TODO: charger aussi une liste de milieux "villaret", à des fins d'annotations milieux
+
 # TODO: charger les annotations déjà effectuée en initialisant st.session_state.output_data
 @st.cache_data
 def load_data(filename):
@@ -108,7 +116,7 @@ def load_data(filename):
     Parameters
     ----------
     filename : string
-        chemon vers les données
+        chemin vers les données
         
     Returns
     -------
@@ -124,7 +132,7 @@ def load_data(filename):
     chunk_size = 10_000 # les données seront chargées par paquets pour aller plus vite
     chunks = [] # liste qui contiendra tous les paquets de données
 
-    for chunk in pd.read_csv(filename, sep=";", usecols=["PrenomNom", "Latitude", "Longitude", "rank_ground_truth", species_column, "NbObs", "Nom_Valide", "Groupe", "Date_Releve", "Code_Releve", "NbObs_Releve"],chunksize=chunk_size):
+    for chunk in pd.read_csv(filename, sep=";", usecols=["PrenomNom", "Latitude", "Longitude", "rank_ground_truth", species_column, "NbObs", "Nom_Valide", "Groupe", "Date_Releve", "Code_Releve", "NbObs_Releve", "Frequence_espece"],chunksize=chunk_size):
         chunks.append(chunk)
     data = pd.concat(chunks, axis=0) # on fusionne tous les paquets pour obtenir les données complètes
     data["ID"] = data.index # on rajoute une colonne ID qui nous permettra d'identifier chaque ligne de façon unique
@@ -154,6 +162,61 @@ def load_data(filename):
     return data, observateurs, especes
 
 @st.cache_data
+def load_Villaret(filename):
+    """
+    Importe les données isues de l'ouvrage de Villaret
+
+    Parameters
+    ----------
+    filename : string
+        chemin vers les données
+        
+    Returns
+    -------
+    dict_milieux : dict
+        dictionnaire associant le nom du milieu à son identifiant
+    
+    milieux_pour_chaque_espece : dict
+        dictionnaire associant à chaque espèce la liste des milieux où elle est présente
+    
+    especes_pour_chaque_milieu : dict
+        dictionnaire associant à chaque milieu la liste des espèces qui l'habitent
+    """
+    df_noms_milieux = pd.read_excel(filename, skiprows=0, header=None, sheet_name="Villaret - fiche>nom", index_col=0, engine="openpyxl").rename(columns={1: "nom"})
+    df_milieu_pour_chaque_espece = pd.read_excel(filename, skiprows=3, header=None, sheet_name="Villaret - espèce>fiche", index_col=0, engine="openpyxl").drop([1,2,3], axis=1)
+    df_especes_pour_chaque_milieu = pd.read_excel(filename, skiprows=0, header=0, sheet_name="Villaret - fiche>espèces", engine="openpyxl")
+
+    dict_milieux = dict()
+    for i in range(len(df_noms_milieux)):
+        dict_milieux[df_noms_milieux.index[i]] = df_noms_milieux.iat[i, 0]
+    
+    milieu_pour_chaque_espece = dict()
+    for i in range(len(df_milieu_pour_chaque_espece)):
+        milieu_pour_chaque_espece[df_milieu_pour_chaque_espece.index[i]] = df_milieu_pour_chaque_espece.iloc[i].dropna().to_list()
+
+    especes_pour_chaque_milieu = dict()
+    for i in range(len(df_noms_milieux)):
+        ID = df_noms_milieux.index[i]
+        nom = df_noms_milieux.at[ID, "nom"]
+        especes = df_especes_pour_chaque_milieu.loc[2:,ID].dropna().to_list()
+        especes_pour_chaque_milieu[ID] = {"nom" : nom, "espèces":especes}
+
+    return dict_milieux, milieu_pour_chaque_espece, especes_pour_chaque_milieu
+
+@st.cache_data
+def load_data_fact_abiotiques(filename):
+    chunk_size = 1_000 # les données seront chargées par paquets pour aller plus vite
+    chunks = [] # liste qui contiendra tous les paquets de données
+
+    for chunk in pd.read_csv(filename, sep=",", header=1,chunksize=chunk_size, 
+                             usecols=["Nom flore", "Lumiere", "Temperature", "Humidite_edaphique", "Reaction_du_sol_(pH)", "Niveau_trophique", "Matiere_organique", "Salinite", "Texture", "Continentalite"]):
+        chunks.append(chunk)
+    data_fact = pd.concat(chunks, axis=0) # on fusionne tous les paquets pour obtenir les données complètes
+    data_fact = data_fact.dropna()
+    
+    return data_fact
+
+@st.cache_data
 def filter_data(data, filters):
     """
     Charge les données dans un data frame
@@ -174,13 +237,15 @@ def filter_data(data, filters):
 
     filtered_data = data.copy() # pour l'instant, les données ne sont pas filtrées
     
-    if (len(st.session_state.filters["PrenomNom"]) == 0) and (len(st.session_state.filters[species_column]) == 0): # on vérifie que l'utilisateur a choisi au moins un observateur ou une espèce, sinon il y a trop de données à afficher, et c'est plus logique
-        st.error("Veuillez choisir un observateur ou une espèce.") # erreur qui s'affiche si ce n'est pas le cas
+    if (len(st.session_state.filters["PrenomNom"]) == 0) and (len(st.session_state.filters[species_column]) == 0) and not st.session_state.filters["ID"]: # on vérifie que l'utilisateur a choisi au moins un observateur ou une espèce, sinon il y a trop de données à afficher, et c'est plus logique
+        st.error("Veuillez choisir un observateur, une espèce ou un ID.") # erreur qui s'affiche si ce n'est pas le cas
     else :
         if len(st.session_state.filters["PrenomNom"]) != 0: # si il y a un filtre sur l'observateur
             filtered_data = filtered_data.loc[[element in filters["PrenomNom"] for element in filtered_data["PrenomNom"]]] # on filtre par rapport à l'observateur
         if len(st.session_state.filters[species_column]) != 0: # si il y a un filtre sur l'espèce
             filtered_data = filtered_data.loc[[element in filters[species_column] for element in filtered_data[species_column]]] # on filtre par rapport à l'espèce
+        if st.session_state.filters["ID"]:
+            filtered_data = filtered_data.loc[filtered_data["ID"]==st.session_state.filters["ID"]]
         if st.session_state.filters["Debut"] > st.session_state.filters["Fin"] : # si le dates choisies ne sont pas dans le bon ordre
             st.error("Veuillez choisir une date de début antérieure à la date de fin.") # erreur affichée
         else :
@@ -369,6 +434,21 @@ def update_id_obs(st_data, current, last):
             return (new, current)
 
 @st.cache_data
+def date_francaise(date):
+    date_anglais = pd.to_datetime(date,format='%Y-%m-%d').strftime('%d %B %Y')
+    
+    correspondance = {"January" : "Janvier", "February" : "Février", "March" : "Mars",
+                "April" : "Avril", "May":"Mai", "June":"Juin", "July":"Juillet",
+                "August":"Août", "September":"Septembre", "October":"Octobre",
+                "November":"Novembre", "December":"Décembre"}
+    
+    for mois_anglais in correspondance.keys():
+        if mois_anglais in date_anglais:
+            mois_francais = correspondance[mois_anglais]
+            return date_anglais.replace(mois_anglais, mois_francais)
+
+
+@st.cache_data
 def afficher_metadonnees(data, id_obs, output_data):
     """
     Affiche, via Streamlit, les métadonnées et le statut d'annotation d'une
@@ -422,7 +502,7 @@ def afficher_metadonnees(data, id_obs, output_data):
         lines.append(f":green[espèce corrigée : {data.at[id_obs, 'annotation_espece']}]")
     lines.append(f"groupe : {data.at[id_obs, 'Groupe']}")
     lines.append(f"observateur : {data.at[id_obs, 'PrenomNom']}")
-    lines.append(f"date : {pd.to_datetime(data.at[id_obs, 'Date_Releve'],format='%Y-%m-%d').strftime('%d %B %Y')}")
+    lines.append(f"date : {date_francaise(data.at[id_obs, 'Date_Releve'])}")
     lines.append(f"coordonnées : ({data.at[id_obs, 'Latitude']}, {data.at[id_obs, 'Longitude']})")
     if data.at[id_obs, 'annotation_latitude'] or data.at[id_obs, 'annotation_longitude']: 
         lines.append(f":green[coordonnées corrigées : {data.at[id_obs, 'annotation_remarque']}]")
@@ -431,6 +511,73 @@ def afficher_metadonnees(data, id_obs, output_data):
     if data.at[id_obs, 'annotation_remarque']:
         lines.append(f":green[remarque : {data.at[id_obs, 'annotation_remarque']}]")
 
+    # Use a single markdown with <br> to avoid extra vertical spacing between lines
+    st.markdown("<br>".join(lines), unsafe_allow_html=True)
+    
+@st.cache_data
+def afficher_stats_geo(data, id_obs, output_data):
+    """
+    Affiche, via Streamlit, les métadonnées et le statut d'annotation d'une
+    observation sélectionnée.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        DataFrame contenant les observations (index attendu égal à l'ID).
+    id_obs : int
+        Identifiant de l'observation à afficher.
+    output_data : pandas.DataFrame
+        Table des annotations sauvegardées (permet d'afficher le statut de
+        validation et les corrections déjà enregistrées).
+
+    Notes
+    -----
+    La fonction construit une liste de lignes préformatées (avec du Markdown)
+    et l'affiche en une seule fois pour éviter un espacement vertical excessif.
+    """
+    
+    # index_in_filtered_data = int(data["ID"].to_list().index(id_obs))
+    lines = []
+    lines.append(f"**ID** : {id_obs}")
+    lines.append(f"**coordonnées** : ({data.at[id_obs, 'Latitude']}, {data.at[id_obs, 'Longitude']})")
+    if data.at[id_obs, 'annotation_latitude'] or data.at[id_obs, 'annotation_longitude']: 
+        lines.append(f":green[coordonnées corrigées : {data.at[id_obs, 'annotation_remarque']}]")
+    lines.append(f"**commune** : {'À implémenter'}")
+    
+    # Use a single markdown with <br> to avoid extra vertical spacing between lines
+    st.markdown("<br>".join(lines), unsafe_allow_html=True)
+    
+    
+@st.cache_data
+def afficher_stats_atypicite(data, id_obs, output_data):
+    """
+    Affiche, via Streamlit, les métadonnées et le statut d'annotation d'une
+    observation sélectionnée.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        DataFrame contenant les observations (index attendu égal à l'ID).
+    id_obs : int
+        Identifiant de l'observation à afficher.
+    output_data : pandas.DataFrame
+        Table des annotations sauvegardées (permet d'afficher le statut de
+        validation et les corrections déjà enregistrées).
+
+    Notes
+    -----
+    La fonction construit une liste de lignes préformatées (avec du Markdown)
+    et l'affiche en une seule fois pour éviter un espacement vertical excessif.
+    """
+    
+    # index_in_filtered_data = int(data["ID"].to_list().index(id_obs))
+    lines = []
+    lines.append(f"**spécimens observés** : {int(data.at[id_obs, 'NbObs'])}")
+    lines.append(f"**fréquence de l'espèce** : {float(data.at[id_obs, 'Frequence_espece'][1:-1:])}")
+    lines.append(f"**atypicité** : {round(data.at[id_obs, 'Atypicité'], 3)}")
+    d = data.loc[data[species_column]==data.at[id_obs, species_column]]
+    s = sum(d["Atypicité"] < d.at[id_obs, "Atypicité"])
+    lines.append(f"-> cette observation est plus atypique que {round(100*s/(len(d)-1), 1)}% des observations de l'espèce")
     # Use a single markdown with <br> to avoid extra vertical spacing between lines
     st.markdown("<br>".join(lines), unsafe_allow_html=True)
 
@@ -447,13 +594,14 @@ def afficher_metadonnees_releve(data, id_obs):
     id_obs : int
         Identifiant de l'observation.
     """
-    st.write("------")
-    st.write(f"code relevé : {data.at[id_obs, 'Code_Releve']}")
-    st.write(f"date relevé : {data.at[id_obs, 'Date_Releve']}")
-    st.write(f"observations dans le relevé : {data.at[id_obs, 'NbObs_Releve']}")
+    lines = []
+    lines.append(f"**observateur** : {data.at[id_obs, 'PrenomNom']}")
+    lines.append(f"**code relevé** : {data.at[id_obs, 'Code_Releve']}")
+    lines.append(f"**date** : {date_francaise(data.at[id_obs, 'Date_Releve'])}")
+    lines.append(f"**observations dans le relevé** : {data.at[id_obs, 'NbObs_Releve']}")
+    st.markdown("<br>".join(lines), unsafe_allow_html=True)
 
-
-actions_possibles = ["Modifier l'espèce/le nom de l'espèce", "Signaler un micro-milieux"]
+actions_possibles = ["Modifier l'espèce/le nom de l'espèce", "Signaler un micro-milieux"] #TODO
 
 def annoter(data, action, id_obs, especes):
     """
@@ -555,6 +703,135 @@ def _save_annotation(id_obs, validation_key):
 
     st.success(f"Annotation sauvegardée pour l'observation ID {id_obs}.")
 
+@st.cache_data
+def indice_jaccard(set1, set2):
+    """
+    Calcule l'indice de Jaccard entre 2 sets
+
+    Parameters
+    ----------
+    set1 : set
+        set contenant une liste d'espèces (observées ou caractéristiques)
+        
+    set2 : set
+        set contenant une liste d'espèces (observées ou caractéristiques)
+        
+    Returns
+    -------
+    indice : float
+        indice de Jaccard
+    """
+    cardinal_union = len(set1|set2)
+    cardinal_inter = len(set1 & set2)
+    indice = cardinal_inter/cardinal_union
+    return cardinal_inter, indice
+
+@st.cache_data
+def format_species(espece):
+    """
+    Retire les suffixes des noms d'espèces (année de découverte et découvreur)
+    Format obtenu : "Genre espèce" ou "Genre espèce subsp. sous-espèce" ou"croisée1 x croisée2"
+
+    Parameters
+    ----------
+    espece : string
+        nom d'une espèce
+        
+    Returns
+    -------
+    formatted_esp : string
+        nom de l'espèce au bon format
+        
+    """
+    l = espece.split()
+    if "subsp." in l:
+        return " ".join(l[:4])
+    elif "x" in l:
+        return " ".join(l[:3])
+    else:
+        return " ".join(l[:2])
+
+@st.cache_data    
+def get_releve(data, ID_releve):
+    """
+    Crée un set contenant les espèces du relevé
+
+    Parameters
+    ----------
+    df_releve : pandas DataFrame
+        subset des données pour les espèces du relevé
+        
+    Returns
+    -------
+    set_releve : set
+        set contenant les espèces du relevé
+    """
+    set_releve = set()
+    df_releve = data.loc[data["Code_Releve"]==ID_releve]
+    
+    for esp in df_releve["Nom_Valide"]:
+        esp=format_species(esp)
+        set_releve.add(esp)
+        
+    return df_releve, set_releve
+
+@st.cache_data
+def get_set_milieu(set_releve, dict_m_pour_e):
+    """
+    Crée un set contenant les codes d'identification des milieux associés aux observations du relevé
+
+    Parameters
+    ----------
+    set_releve : set
+        espèces observées dans le relevé
+        
+    dict_m_pour_e : dict
+        dictionnaire associant à une espèce les milieux dans lesquels elle est présente
+        
+    Returns
+    -------
+    set_milieu : set
+        set contenant les milieux qui donneront un indice de Jaccard non nul
+        
+    Notes
+    -----
+    - set_milieu ne contient que les milieux qui ont au moins une observation en commun avec le relevé
+        
+    """
+    set_milieu = set()
+    for esp in set_releve:
+        if esp in dict_m_pour_e.keys():
+            for m in dict_m_pour_e[esp]:
+                if len(m)==5: #TODO : fix F090
+                    set_milieu.add(m) 
+    return set_milieu
+
+@st.cache_data
+def get_df_Jaccard(set_r, set_m, e_pour_m):
+    list_res = list()
+    
+    for mil in set_m:
+        i_j = indice_jaccard(set_r, set(e_pour_m[mil]['espèces']))
+        list_res.append([dict_milieux[mil], i_j[1], i_j[0]])
+    
+    df_J = pd.DataFrame(list_res, 
+                        index=list(set_m), 
+                        columns=["Nom", "Indice de Jaccard", "nbr espèces observées"])
+    
+    return df_J.sort_values(by="Indice de Jaccard", axis=0, ascending=False)
+
+@st.cache_data
+def get_df_fact(df_f, df_r):
+    df_merge = pd.merge(df_f, df_r,how='inner', on='Nom flore')
+    return df_merge[["Nom flore", "Lumiere", "Temperature", "Humidite_edaphique", "Reaction_du_sol_(pH)", "Niveau_trophique", "Matiere_organique", "Salinite", "Texture", "Continentalite", "Code_Releve"]]
+    
+
+@st.cache_data
+def atypicite_moyenne_releves(data):
+    return data[["Code_Releve", "Atypicité"]].groupby(["Code_Releve"]).mean()["Atypicité"]
+
+
+
 if __name__ == "__main__":
 
     tab1, tab2 = st.tabs(["Visu&Annotation", "Statistiques"])
@@ -563,6 +840,8 @@ if __name__ == "__main__":
     # Chargement des donnees
     # msg = st.toast("Chargement des données...")
     data, observateurs, especes = load_data(DATA_PATH)
+    dict_milieux, milieu_pour_chaque_espece, especes_pour_chaque_milieu = load_Villaret(VILLARET_PATH)
+    data_fact_abiotiques = load_data_fact_abiotiques(FACT_PATH)
 
     if "output_data" not in st.session_state:
         st.session_state.output_data =  pd.DataFrame(columns=data.columns)
@@ -585,7 +864,7 @@ if __name__ == "__main__":
     # Premier onglet pour la visualisation
 
     with tab1:
-        col_carte, col_annot, col_meta = st.columns([5, 3, 2], border= True, gap=None) # separation de l'affichage en 2 : une partie pour la carte et une pour les metadonnees
+        col_carte, col_annot, col_meta = st.columns([5, 3, 2], border= True, gap=None) # separation de l'affichage en 3 : une partie pour la carte, une pour l'annotation et une pour les metadonnees
 
         ###################################################
         # Selection des filtres
@@ -595,6 +874,7 @@ if __name__ == "__main__":
             st.session_state.filters = dict()
             st.session_state.filters["PrenomNom"] = st.multiselect("Nom de l'observateur", observateurs, placeholder="Aucune sélection")
             st.session_state.filters[species_column] = st.multiselect("Espèce", especes, placeholder="Aucune sélection")
+            st.session_state.filters["ID"] = st.number_input("ID", min_value=0, value=None, step=1)
             st.session_state.filters["Debut"] = st.date_input("Du", value = "1990-01-01", min_value="1990-01-01", max_value="today", format="YYYY-MM-DD")
             st.session_state.filters["Fin"] = st.date_input("Jusqu'au", value = "today", min_value="1990-01-01", max_value="today", format="YYYY-MM-DD")
             st.session_state.filters["lo_Score"], st.session_state.filters["hi_Score"] = st.select_slider("Atypicité", options=[i for i in np.arange(0, 10.5, 0.5)], value=(0,10))
@@ -716,22 +996,152 @@ if __name__ == "__main__":
     ###################################################
     # DEUXIEME ONGLET POUR LES STATISTIQUES
     with tab2: 
-        # TODO: add statistics on number of obs, number of filtered obs, number of species, histogram on Atypicity
-
-        ###################################################
-        # Affichage d'un tableau de donnees supplementaire
-   
-        if type(st.session_state.filtered_data) != type(None):
-            st.subheader(f"Données brutes (n = {len(st.session_state.filtered_data)})")
-            select_row = st.dataframe(st.session_state.filtered_data.head(100), 
-                        hide_index=True, 
-                        selection_mode="single-row",
-                        on_select="rerun",
-                        column_order=("ID", species_column, "Nom_Valide", "Latitude", "Longitude", "PrenomNom", "NbObs", "Groupe", "Atypicité", "rank_ground_truth", "Code_Releve", "Date_Releve", "NbObs_Releve", "annotation_espece", "annotation_latitude", "annotation_longitude", "annotation_micro", "annotation_remarque", "validation"))
-                
-        else :
-            st.subheader("Données brutes")
+        if type(st.session_state.filtered_data) == type(None):
             st.write("Veuillez filtrer les données")
+        elif type(st_data1['last_object_clicked']) == type(None): # si aucune observation n'a ete selectionnee
+            st.write("Veuillez cliquer sur une observation pour afficher les données associées")
+        else : 
+
+            col_1, col_2, col_3 = st.columns([1, 1, 1], border= True, gap=None)
+            
+            
+            ###################################################
+            # Colonne pour les données spatiales
+            with col_1 :
+                st.subheader("Données spatiales")
+                afficher_stats_geo(st.session_state.filtered_data, 
+                            st.session_state.id_obs, 
+                            st.session_state.output_data)
+                
+                # st.write(f"**Carte des observations** de {data.at[st.session_state.id_obs, species_column]} :")
+                st.text(f"Carte des observations de {data.at[st.session_state.id_obs, species_column]} :",
+                          help = "L'ensemble des observations disponibles pour l'espèce sont affichées. La couleur des points correspond à leur atypicité. Il n'est pas possible de sélectionner une observation depuis cet affichage.")
+                
+                map2, group2 = make_map(data.loc[data[species_column]==data.at[st.session_state.id_obs, species_column]],
+                                colormap,
+                                annotated= st.session_state.output_data['ID'].to_list(),
+                                toggle_clusters=False, 
+                                toggle_dpt=st.session_state.dpt)
+
+                st_data2 = st_folium(map2, key='map2', 
+                                     width=__width__, height=__height__)
+                    
+            ###################################################
+            # Colonne pour les données de fréquence et d'atypicité       
+            with col_2 :
+                st.subheader("Données de fréquence")
+                afficher_stats_atypicite(data, 
+                            st.session_state.id_obs, 
+                            st.session_state.output_data)
+                
+                st.write("")
+                
+                ###################################################
+                # Histogramme des atypicités de l'espèce
+                st.text(f"Histogramme des atypicités des spécimens de {data.at[st.session_state.id_obs, species_column]} :",
+                        help="La ligne rouge correspond à l'observation en cours d'affichage. Les colonnes bleues correspondent au nombre d'observations pour une valeur d'atypicité donnée")
+
+                fig, ax = plt.subplots()
+                ax.hist(data.loc[data[species_column]==data.at[st.session_state.id_obs, species_column]]["Atypicité"],
+                        bins=10, color="blue")
+                plt.axvline(x=data.at[st.session_state.id_obs, 'Atypicité'], color="red", label=f"Atypicité(observation) = {round(data.at[st.session_state.id_obs, 'Atypicité'], 3)}")
+                plt.xlim((0,10))
+                
+                plt.xlabel("Atypicité")
+                plt.ylabel("Occurences")
+                ax.legend()
+                st.pyplot(fig)
+                
+                st.write("")
+                
+                ###################################################
+                # Boxplot des atypicités intra- et inter-relevés
+                st.text("Comparaison des atypicités intra- et inter-relevés :",
+                         help="Boxplot. L'atypicité moyenne de chaque relevé a été calculée pour obtenir le profil de droite. En rouge, les médianes.")
+                at_1 = data.loc[data["Code_Releve"]==data.at[st.session_state.id_obs, "Code_Releve"]]["Atypicité"]
+                at_tous = atypicite_moyenne_releves(data)
+                
+                fig, ax = plt.subplots()
+                ax.boxplot([at_1, at_tous])
+                ax.set_xticklabels([f"Profil du relevé n°{data.at[st.session_state.id_obs, 'Code_Releve']} \n (Intra)", 
+                                    "Profil de l'ensemble des relevés \n (Inter)"])
+                plt.ylabel("Atypicité")
+                st.pyplot(fig)
+                
+                
+            ###################################################
+            # Colonne pour les données relatives au relevé et au milieu 
+            with col_3 :
+                st.subheader("Données du relevé")
+                
+                afficher_metadonnees_releve(data, st.session_state.id_obs)
+                
+                # dataframe et sets contenant les infos du relevé
+                df_releve, set_releve = get_releve(data, data.at[st.session_state.id_obs, 'Code_Releve'])
+                set_milieu = get_set_milieu(set_releve, milieu_pour_chaque_espece)
+                
+                ###################################################
+                # Tableau des observations
+                st.write("**Observations du relevé** :")
+                st.dataframe(df_releve, 
+                             hide_index=True, 
+                             column_order=("ID", species_column, "Nom_Valide", "NbObs", "Atypicité"),
+                             height = min(200, len(df_releve)*60))
+                
+
+                st.write("")
+                
+                ###################################################
+                # Tableau des indices de Jaccard
+                df_Jaccard = get_df_Jaccard(set_releve, set_milieu, especes_pour_chaque_milieu)
+                
+                if len(df_Jaccard)!=0:
+                    st.text("Milieux probables (indice de Jaccard) :",
+                            help="L'indice de Jaccard mesure la similitude entre 2 ensembles d'espèces. Ici, on compare les espèces du relevé à la littérature (Villaret). Une valeur de 1 équivaut à une correspondance parfaite, et une valeur de 0 à une absence de correspondance.") 
+                    st.dataframe(df_Jaccard, height=200)
+                else:
+                    
+                    st.text("Milieux probables :",
+                            help="Les données utilisées, issues de la littérature (Villaret), ne contiennent pas toutes les espèces présentes en Isère.") 
+                    st.markdown("-> observations insuffisantes pour calculer l'indice de Jaccard", unsafe_allow_html=True)
+                
+                st.write("")
+                
+                ###################################################
+                # Boxplot des indices d'Ellenberg
+
+                df_fact_abiotiques = get_df_fact(data_fact_abiotiques, df_releve)
+                
+                if len(df_fact_abiotiques)!=0:
+                    st.text("Profil écologique :",
+                            help = "Les indices d'Ellenberg mesurent les préférences d'une espèce pour différents facteurs abiotiques. Synthétiser les indices d'Ellenberg du relevé peut permettre de comprendre le type de milieu qu'il représente.")
+                    
+                    list_box = list()
+                    list_col_Ellenberg = ['Lumiere', 'Temperature', "Humidite_edaphique", "Reaction_du_sol_(pH)", "Matiere_organique", "Texture", 'Salinite']
+                    for c in list_col_Ellenberg:
+                        list_box.append(df_fact_abiotiques[c])
+                    
+                    fig, ax = plt.subplots()
+                    ax.boxplot(list_box)
+                    ax.grid(axis="both", color="lightgrey", linewidth=0.7)
+                    plt.xticks([i for i in range(1,len(list_col_Ellenberg)+1)], 
+                               labels=[i.replace("_", "\n", 1) for i in list_col_Ellenberg], 
+                               rotation=60)
+                    st.pyplot(fig)
+                else :
+                    st.text("Profil écologique :",
+                            help = "Les données utilisées ne contiennent pas toutes les espèces présentes en Isère. Aucune information n'a été trouvée concernant les préférences écologiques des espèces du relevé")
+                    st.markdown("-> observations insuffisantes pour calculer le profil écologique", unsafe_allow_html=True)
+                
+                
+            ###################################################
+            # Affichage d'un tableau de donnees supplementaire
+    
+            st.subheader(f"Données brutes (n = {len(st.session_state.filtered_data)})")
+            st.dataframe(st.session_state.filtered_data.head(100), 
+                        hide_index=True,
+                        column_order=("ID", species_column, "Nom_Valide", "Latitude", "Longitude", "PrenomNom", "NbObs", "Groupe", "Atypicité", "rank_ground_truth", "Code_Releve", "Date_Releve", "NbObs_Releve", "annotation_espece", "annotation_latitude", "annotation_longitude", "annotation_micro", "annotation_remarque", "validation"))
+
 
     ###################################################
     # Deuxième onglet pour l'annotation et l'affichage de données supplémentaires
@@ -751,34 +1161,6 @@ if __name__ == "__main__":
     #             row2 = st.container(height=475)
                 
     #             ###################################################
-    #             # Affichage d'une carte centrée et zoomée sur l'observation
-                
-    #             with row1:
-    #                 sub_col_carte_1, sub_col_carte_2 = st.columns(2)
-                    
-    #                 sub_col_carte_1.subheader("Cartes")
-    #                 afficher_espece = sub_col_carte_2.toggle("Afficher l'espèce")
-
-    #                 if afficher_espece :
-    #                     st_data2 = make_map(data.loc[data[species_column]==data.at[st.session_state.id_obs, species_column]],
-    #                             colormap, 
-    #                             360,
-    #                             360,
-    #                             100,
-    #                             clusters,
-    #                             key=2, 
-    #                             center=(st_data1['last_object_clicked']["lat"], st_data1['last_object_clicked']["lng"]))
-    #                 else :
-    #                     st_data2 = make_map(data.iloc[[st.session_state.id_obs]], 
-    #                             colormap,
-    #                             360,
-    #                             360,
-    #                             1,
-    #                             clusters,
-    #                             key=2, 
-    #                             center=(st_data1['last_object_clicked']["lat"], st_data1['last_object_clicked']["lng"]))
-                    
-    #             ###################################################
     #             # Annotation
                 
     #             with row2 :
@@ -786,22 +1168,6 @@ if __name__ == "__main__":
     #                 actions_possibles = ["Modifier l'espèce/le nom de l'espèce", "Modifier la position", "Signaler un micro-milieux", "Valider l'observation", "Autre"]
     #                 action = st.selectbox("Que souhaitez-vous faire ?", actions_possibles, index=None, placeholder="Veuillez choisir une option")
     #                 annoter(data, action, st.session_state.id_obs, especes)
-                    
-    #         ###################################################
-    #         # Afficahge de données supplémentaires
-
-    #         with col_data:
-    #             sub_col_data_1, sub_col_data_2 = st.columns(2)
-                
-    #             sub_col_data_1.subheader("Metadonnées")
-    #             afficher_releve = sub_col_data_2.toggle("Afficher le relevé")
-
-    #             afficher_metadonnees(data, st.session_state.id_obs)
-    #             if afficher_releve :
-    #                 afficher_metadonnees_releve(data, st.session_state.id_obs)
-    #                 st.dataframe(data.loc[
-    #                     data["Code_Releve"]==data.at[st.session_state.id_obs, 'Code_Releve']
-    #                     ], hide_index=True, column_order=("ID", species_column, "Nom_Valide", "NbObs", "Atypicité"))
                     
     #             # TODO : ajouter code postal/commune, nbr de communes où l'espèce est présente
     #             # TODO : superposition cartes
