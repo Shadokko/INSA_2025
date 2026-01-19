@@ -95,7 +95,6 @@ def compute_atypicity(filtered_data, data, method):
         case "rank_ground_truth":
             minv = np.min(data["rank_ground_truth"])
             maxv = np.max(data["rank_ground_truth"])
-            print(f"Rank_ground_truth min: {minv}, max: {maxv}")
             denom = maxv - minv
             if denom != 0:
                 return 10 * (filtered_data["rank_ground_truth"].values - minv) / denom
@@ -105,7 +104,6 @@ def compute_atypicity(filtered_data, data, method):
         case "kohonen":
             minv = np.min(data["RangEspUC"])
             maxv = np.max(data["RangEspUC"])
-            print(f"Kohonen RangEspUC min: {minv}, max: {maxv}")
             denom = maxv - minv
             if denom != 0:
                 return 10 * (filtered_data["RangEspUC"].values - minv) / denom
