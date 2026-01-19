@@ -33,8 +33,11 @@ path2param = Path(__file__).parent / "params.yml"
 print(f"Loading parameter file: {path2param.resolve()}")
 yaml=YAML(typ='safe')   # default, if not specfied, is 'rt' (round-trip)
 params = yaml.load(path2param)
-DATA_PATH = params['DATA_PATH']
-print(f"Data path: {Path(DATA_PATH).resolve()}\n")
+DATA_PATH_NFAURE = params['DATA_PATH_NFAURE']
+print(f"N. Faure's data path: {Path(DATA_PATH_NFAURE).resolve()}\n")
+
+DATA_PATH_KOHONEN = params['DATA_PATH_KOHONEN']
+print(f"Kohonen's data path: {Path(DATA_PATH_KOHONEN).resolve()}\n")
 
 species_list_path = params['species_list_path']
 print(f"Species list path: {Path(species_list_path).resolve()}\n")
@@ -47,7 +50,8 @@ __width__ = params['width']
 species_column = params['species_column']
 
 
-# DATA_PATH = "../../result_export.csv"
+# DATA_PATH_NFAURE = "../../result_export.csv"
+# DATA_PATH_KOHONEN = "experiments/kohonen_results.csv"
 
 
 __GRENOBLE__ = (45.0106, 9.4330)
@@ -61,54 +65,76 @@ def compute_atypicity(filtered_data, data, method):
     """
     Calcule un score d'atypicité normalisé sur l'échelle 0-10, et ajoute une colonne "Atypicité" correspondante
 
-    Le calcul actuel normalise la colonne "rank_ground_truth" présente dans
-    ``filtered_data`` en utilisant l'étendue (min/max) calculée sur ``data``
-    (l'ensemble complet) pour garantir une échelle cohérente entre sous-ensembles.
+    Le calcul normalise la métrique choisie présente dans ``filtered_data`` 
+    en utilisant l'étendue (min/max) calculée sur ``data`` (l'ensemble complet) 
+    pour garantir une échelle cohérente entre sous-ensembles.
 
     Parameters
     ----------
     filtered_data : pandas.DataFrame
         DataFrame contenant les observations filtrées (doit contenir
-        ``rank_ground_truth``).
+        ``rank_ground_truth`` ou ``RangEspUC`` selon la méthode).
     data : pandas.DataFrame
         DataFrame complet utilisé pour déterminer l'échelle (min/max).
     method : str
-        Méthode de calcul. Actuellement pris en charge : ``"rank_ground_truth"``.
+        Méthode de calcul : "rank_ground_truth", "kohonen", ou "frequency".
 
     Returns
     -------
     numpy.ndarray
-        Tableau 1D (ou Series convertible) contenant le score d'atypicité pour
-        chaque ligne de ``filtered_data`` (valeurs entre 0 et 10).
+        Tableau 1D contenant le score d'atypicité pour chaque ligne de 
+        ``filtered_data`` (valeurs entre 0 et 10).
 
     Notes
     -----
-    Si la plage (max-min) vaut 0 (toutes les valeurs identiques), la fonction
-    renvoie un vecteur de zéros pour éviter une division par zéro.
+    Si la plage (max-min) vaut 0, la fonction renvoie un vecteur de zéros 
+    pour éviter une division par zéro.
     """
 
     match method:
         case "rank_ground_truth":
             minv = np.min(data["rank_ground_truth"])
             maxv = np.max(data["rank_ground_truth"])
+            print(f"Rank_ground_truth min: {minv}, max: {maxv}")
             denom = maxv - minv
-            if denom == 0:
-                # Si toutes les valeurs sont identiques, on renvoie des zéros
+            if denom != 0:
+                return 10 * (filtered_data["rank_ground_truth"].values - minv) / denom
+            else:
                 return np.zeros(len(filtered_data))
-            return 10 * (filtered_data["rank_ground_truth"] - minv) / denom
+
+        case "kohonen":
+            minv = np.min(data["RangEspUC"])
+            maxv = np.max(data["RangEspUC"])
+            print(f"Kohonen RangEspUC min: {minv}, max: {maxv}")
+            denom = maxv - minv
+            if denom != 0:
+                return 10 * (filtered_data["RangEspUC"].values - minv) / denom
+            else:
+                return np.zeros(len(filtered_data))
+        
+        case "frequency":
+            # Return an atypicity score based on species frequency in the whole dataset
+            species_counts = data[species_column].value_counts(normalize=True)
+            return filtered_data[species_column].map(lambda x: 10 * (1 - species_counts.get(x, 0))).values
+        
+        case "hybrid":
+            st.error("Méthode 'hybrid' non implémentée.")
+            return np.zeros(len(filtered_data))
 
 # TODO: charger aussi une liste de milieux "villaret", à des fins d'annotations milieux
 # TODO: charger les annotations déjà effectuée en initialisant st.session_state.output_data
 @st.cache_data
-def load_data(filename):
+def load_data(path_nfaure, path_kohonen):
     """
     Charge les données 
 
     Parameters
     ----------
-    filename : string
-        chemon vers les données
-        
+    path_nfaure : string
+        chemin vers les données du modèle de N. Faure
+    path_kohonen : string
+        chemin vers les données du modèle de Kohonen
+
     Returns
     -------
     data : pandas data frame
@@ -120,14 +146,120 @@ def load_data(filename):
     especes : list
         liste des espcèces présentes dans les données, sans répétition
     """
-    chunk_size = 10_000 # les données seront chargées par paquets pour aller plus vite
-    chunks = [] # liste qui contiendra tous les paquets de données
+    print("Chargement des données...")
+    df_nf = pd.read_csv(path_nfaure, sep=";")    
+    if "Nom flore" in df_nf.columns:
+        df_nf = df_nf.rename(columns={"Nom flore": species_column})
+    cols_nf = ["PrenomNom", "Latitude", "Longitude", "rank_ground_truth", 
+               species_column, "NbObs", "Nom_Valide", "Groupe", 
+               "Date_Releve", "Code_Releve", "NbObs_Releve", "Code_Espèce"]
+    df_nf = df_nf[[c for c in cols_nf if c in df_nf.columns]]
+    df_nf = df_nf.rename(columns={"Code_Espèce": "Code_Espece"})
+    print(f"Taille du dataframe N. Faure : {df_nf.shape}")
 
-    for chunk in pd.read_csv(filename, sep=";", usecols=["PrenomNom", "Latitude", "Longitude", "rank_ground_truth", species_column, "NbObs", "Nom_Valide", "Groupe", "Date_Releve", "Code_Releve", "NbObs_Releve"],chunksize=chunk_size):
-        chunks.append(chunk)
-    data = pd.concat(chunks, axis=0) # on fusionne tous les paquets pour obtenir les données complètes
-    data["ID"] = data.index # on rajoute une colonne ID qui nous permettra d'identifier chaque ligne de façon unique
-    data["Atypicité"] = compute_atypicity(data, data, "rank_ground_truth")
+    df_ko = pd.read_csv(path_kohonen, sep=",")
+    cols_ko = ["PrenomNom", "Lat", "Lon", "RangEspUC", species_column,
+               "NbObs", "Nom_Valide", "Groupe", "DateObs", "Code_Releve",
+               "NbObs_Releve", "Code_Espece", "Code_Observation", "UC",
+               "distUCAvere", "ProbaObs"]
+    df_ko = df_ko[[c for c in cols_ko if c in df_ko.columns]]
+    df_ko = df_ko.rename(columns={"Lon": "Longitude", "Lat": "Latitude", "DateObs": "Date_Releve"})
+    print(f"Taille du dataframe Kohonen : {df_ko.shape}\n")
+
+    # Lister les colonnes communes aux deux data frames
+    cols_communes = set(df_nf.columns).intersection(set(df_ko.columns))
+
+    # Colonnes utilisées pour la fusion des deux data frames
+    cols_to_merge = ["Code_Releve", "Code_Espece", "Latitude", "Longitude"]
+
+    # Verification des types de données pour les colonnes de fusion
+    for col in cols_to_merge:
+        if df_nf[col].dtype != df_ko[col].dtype:
+            print(f"Avertissement : type de données différent pour la colonne '{col}' : df_nf {df_nf[col].dtype}, df_ko {df_ko[col].dtype}")
+            # On tente une conversion explicite si possible
+            try:
+                df_ko[col] = df_ko[col].astype(df_nf[col].dtype)
+                print(f"Conversion réussie de la colonne '{col}' dans df_ko vers {df_nf[col].dtype}\n")
+            except Exception as e:
+                print(f"Échec de la conversion de la colonne '{col}' dans df_ko : {e}\n")
+
+    # On supprime les lignes auxquelles il manque des données dans les colonnes de fusion
+    len_before_nf = len(df_nf)
+    df_nf = df_nf.dropna(subset=cols_to_merge)
+    len_before_ko = len(df_ko)
+    df_ko = df_ko.dropna(subset=cols_to_merge)
+    # On print dans le terminal le nombre de lignes supprimées
+    print(f"Suppression de {len_before_nf - len(df_nf)} lignes dans les données N. Faure (données incomplètes sur les colonnes de fusion).")
+    print(f"Suppression de {len_before_ko - len(df_ko)} lignes dans les données Kohonen (données incomplètes sur les colonnes de fusion).\n")
+
+    # On supprime les lignes qui ont 0 comme code espèce ou 0 comme UC (glaciers)
+    len_before_nf = len(df_nf)
+    len_before_ko = len(df_ko)
+    df_nf = df_nf[df_nf["Code_Espece"] != 0]
+    df_ko = df_ko[df_ko["Code_Espece"] != 0]
+    df_ko = df_ko[df_ko["UC"] != 0]
+    print(f"Suppresion de {len_before_nf - len(df_nf)} lignes dans les données N. Faure (Code_Espece = 0).")
+    print(f"Suppresion de {len_before_ko - len(df_ko)} lignes dans les données Kohonen (Code_Espece = 0 ou UC = 0).\n")
+
+    # On supprime les lignes qui ont le même [Code_Releve, Code_Espece] pour ne garder qu'une observation par espèce et par relevé
+    len_before_nf = len(df_nf)
+    len_before_ko = len(df_ko)
+    df_nf = df_nf.drop_duplicates(subset=["Code_Releve", "Code_Espece"])
+    df_ko = df_ko.drop_duplicates(subset=["Code_Releve", "Code_Espece"])
+    print(f"Suppression de {len_before_nf - len(df_nf)} lignes en double (même Code_Releve et Code_Espece) dans le dataframe N. Faure.")
+    print(f"Suppression de {len_before_ko - len(df_ko)} lignes en double (même Code_Releve et Code_Espece) dans le dataframe Kohonen.\n")
+
+    # On print la taille des deux data frames après nettoyage
+    print(f"Taille du dataframe N. Faure après nettoyage : {df_nf.shape}")
+    print(f"Taille du dataframe Kohonen après nettoyage : {df_ko.shape}\n")
+
+    # Fusion des deux data frames
+    print("Fusion des données N. Faure et Kohonen en un unique dataframe...")
+    print(f"Colonnes utilisées pour la fusion des données : {cols_to_merge}\n")
+    data = pd.merge(df_nf, df_ko, on=cols_to_merge, how="outer", suffixes=("_nf", "_ko"))
+    # Pour les colonnes présentes dans la liste cols_communes mais pas dans cols_to_merge, on garde les valeurs de df_ko si elles existent, sinon celles de df_nf
+    for col in cols_communes:
+        if col not in cols_to_merge:
+            data[col] = data[f"{col}_ko"].combine_first(data[f"{col}_nf"])
+            data = data.drop(columns=[f"{col}_nf", f"{col}_ko"])
+    
+    # On rajoute une colonne ID qui nous permettra d'identifier chaque ligne de façon unique : ID = "Code_Releve"_"Code_Espece"
+    data["ID"] = data["Code_Releve"].astype(str) + "_" + data["Code_Espece"].astype(str)
+
+    # Affichage d'informations sur le nouveau dataframe
+    print(f"Données fusionnées : {len(data)} observations.")
+    # Nb de données qui ont à la fois rank_ground_truth et Code_Observation => données présentes dans les deux datasets
+    count_both_scores = data.dropna(subset=["rank_ground_truth", "Code_Observation"]).shape[0]
+    print(f"Dont {count_both_scores} observations présentes dans les deux datasets (N. Faure et Kohonen).\n")
+    print(f"Colonnes présentes dans les données fusionnées : {data.columns.tolist()}\n")
+    # Affichage du nombre de NaN par colonne
+    for col in data.columns:
+        num_nan = data[col].isna().sum()
+        if num_nan > 0:
+            print(f"Colonne '{col}' : {num_nan} valeurs NaN.")
+    print("")
+
+
+    # Calcul des scores d'atypicité
+    data["Atypicité_NFaure"] = compute_atypicity(data, data, "rank_ground_truth")
+    data["Atypicité_Kohonen"] = compute_atypicity(data, data, "kohonen")
+    data["Atypicité_Frequency"] = compute_atypicity(data, data, "frequency")
+    # data["Atypicité_Hybrid"] = compute_atypicity(data, data, "hybrid")
+    
+    # Par défaut pour la carte, on peut créer une colonne 'Atypicité' basée sur le filtre actif
+    if "filtered_data" in st.session_state and st.session_state.filtered_data is not None:
+        method = st.session_state.filters["Méthode"]
+        if method == "rank_ground_truth":
+            data["Atypicité"] = data["Atypicité_NFaure"]
+        elif method == "kohonen":
+             data["Atypicité"] = data["Atypicité_Kohonen"]
+        elif method == "frequency":
+             data["Atypicité"] = data["Atypicité_Frequency"]
+        else:
+            st.error(f"Méthode '{method}' non implémentée pour la colonne 'Atypicité'.")
+    else:
+        data["Atypicité"] = data["Atypicité_Frequency"] # valeur par défaut
+
     observateurs = list(data["PrenomNom"].unique())
 
     # Loading species list, with a backup plan in case of failure
@@ -186,7 +318,7 @@ def filter_data(data, filters):
             filtered_data = filtered_data.loc[pd.to_datetime(filtered_data["Date_Releve"],format='%Y-%m-%d').dt.date >= filters["Debut"]] # sinon, on garde uniquement les données ultérieures à la date de début choisie
             filtered_data = filtered_data.loc[pd.to_datetime(filtered_data["Date_Releve"],format='%Y-%m-%d').dt.date <= filters["Fin"]] # puis, on garde uniquement les données précédant la date de début choisie
         
-        # filtered_data["Atypicité"] = compute_atypicity(filtered_data, data, st.session_state.filters["Méthode"])
+        filtered_data["Atypicité"] = compute_atypicity(filtered_data, data, st.session_state.filters["Méthode"])
         filtered_data = filtered_data.loc[filtered_data["Atypicité"]<st.session_state.filters["hi_Score"]]
         filtered_data = filtered_data.loc[filtered_data["Atypicité"]>st.session_state.filters["lo_Score"]]
         filtered_data = filtered_data.sort_values(by="Atypicité", ascending=False).head(int(st.session_state.filters['Top_atypicity']))
@@ -279,7 +411,7 @@ def make_map(df, colormap, toggle_clusters=False, toggle_dpt=False, annotated=[]
     group_1 = folium.FeatureGroup("observations")
 
     for index, row in df.iterrows(): # on affiche les N marqueurs
-        if int(row['ID']) in annotated: radius = 3
+        if row['ID'] in annotated: radius = 3
         else: radius = 7
 
         folium.CircleMarker(location=list(row.loc[['Latitude', 'Longitude']]),
@@ -318,9 +450,9 @@ def update_id_obs(st_data, current, last):
     ----------
     st_data : dict
         Données issues du composant Folium (clés possibles listées ci-dessus).
-    current : int | None
-        ID actuellement sélectionné.
-    last : int | None
+    current : str | None
+        ID actuellement sélectionné (format: "Code_Releve_Code_Espece").
+    last : str | None
         ID précédemment sélectionné (utilisé pour historique/back-navigation).
 
     Returns
@@ -334,17 +466,17 @@ def update_id_obs(st_data, current, last):
     clicked = st_data.get('last_object_clicked') if isinstance(st_data, dict) else None
 
     if popup:
-        m = re.search(r'ID\s*:\s*(\d+)', popup)
+        m = re.search(r'ID\s*:\s*(\d+_\d+)', popup)
         if m:
             try:
-                new = int(m.group(1))
+                new = m.group(1).strip()
             except:
                 new = None
     elif clicked:
         if isinstance(clicked, dict):
             if 'id' in clicked:
                 try:
-                    new = int(clicked['id'])
+                    new = str(clicked['id'])
                 except:
                     new = None
             elif ('lat' in clicked) and ('lng' in clicked):
@@ -355,7 +487,7 @@ def update_id_obs(st_data, current, last):
                     if df is not None and len(df) > 0:
                         distances = (df['Latitude'] - lat)**2 + (df['Longitude'] - lng)**2
                         nearest_idx = distances.idxmin()
-                        new = int(df.at[nearest_idx, 'ID'])
+                        new = str(df.at[nearest_idx, 'ID'])
                 except:
                     new = None
 
@@ -377,8 +509,8 @@ def afficher_metadonnees(data, id_obs, output_data):
     ----------
     data : pandas.DataFrame
         DataFrame contenant les observations (index attendu égal à l'ID).
-    id_obs : int
-        Identifiant de l'observation à afficher.
+    id_obs : str
+        Identifiant de l'observation à afficher (format: "Code_Releve_Code_Espece").
     output_data : pandas.DataFrame
         Table des annotations sauvegardées (permet d'afficher le statut de
         validation et les corrections déjà enregistrées).
@@ -389,46 +521,63 @@ def afficher_metadonnees(data, id_obs, output_data):
     et l'affiche en une seule fois pour éviter un espacement vertical excessif.
     """
     
-    # index_in_filtered_data = int(data["ID"].to_list().index(id_obs))
+    # Sélection robuste sur la colonne ID (l'index n'est pas l'ID)
+    mask = data['ID'] == id_obs
+    if not mask.any():
+        st.error(f"ID inconnu dans les données filtrées : {id_obs}")
+        return
+    row = data.loc[mask].iloc[0]
+
     lines = []
-    lines.append(f"ID : {id_obs}")
+    lines.append(f"**ID :** {id_obs}")
 
-    if id_obs in output_data['ID'].to_list():
-        lines.append(":green[observation annotée]")
+    mask_out = output_data['ID'] == id_obs if 'ID' in output_data else pd.Series([], dtype=bool)
+    if mask_out.any():
+        lines.append(":green[**observation annotée**]")
 
-        if output_data.loc[output_data['ID']==id_obs, 'validation'].values[0] == "Je confirme": color = "green"
-        elif output_data.loc[output_data['ID']==id_obs, 'validation'].values[0] == "Donnée douteuse": color = "orange"
-        else: color = "red"
- 
-        lines.append(f"Statut: :{color}[{output_data.loc[output_data['ID']==id_obs, 'validation'].values[0]}]")
-
-        annotations_espece = output_data.loc[output_data['ID']==id_obs, 'annotation_espece'].values        
-        # if len(annotations_espece != 1):
-        #     st.error("Erreur : annotation espèce non unique pour cette observation.")
-        annotation_espece = annotations_espece[0]
-
-        if data.at[id_obs, species_column] != annotation_espece:
-            lines.append(f"Espèce ({species_column}): {data.at[id_obs, species_column]} :green[→ {annotation_espece}]")
+        validation_value = output_data.loc[mask_out, 'validation'].dropna().iloc[-1] if not output_data.loc[mask_out, 'validation'].dropna().empty else None
+        if validation_value == "Je confirme":
+            color = "green"
+        elif validation_value == "Donnée douteuse":
+            color = "orange"
+        elif validation_value is not None:
+            color = "red"
         else:
-            lines.append(f"Espèce ({species_column}): {data.at[id_obs, species_column]} :green[espèce non modifiée]")
+            color = "grey"
+        lines.append(f"**Statut:** :{color}[{validation_value if validation_value is not None else 'Non renseigné'}]")
+
+        annotations_espece = output_data.loc[mask_out, 'annotation_espece'].dropna()
+        annotation_espece = annotations_espece.iloc[-1] if not annotations_espece.empty else None
+
+        if annotation_espece and annotation_espece != row[species_column]:
+            lines.append(f"**Espèce ({species_column}):** {row[species_column]} :green[→ {annotation_espece}]")
+        else:
+            lines.append(f"**Espèce ({species_column}):** {row[species_column]} :green[espèce non modifiée]")
     else:
-        lines.append(":red[observation en attente d'annotation]")
-        lines.append(f"Espèce ({species_column}): {data.at[id_obs, species_column]}")
+        lines.append(":red[**observation en attente d'annotation**]")
+        lines.append(f"**Espèce ({species_column}):** {row[species_column]}")
 
 
-    # lines.append(f"nom valide : {data.at[id_obs, 'Nom_Valide']}")
-    if data.at[id_obs, 'annotation_espece']:
-        lines.append(f":green[espèce corrigée : {data.at[id_obs, 'annotation_espece']}]")
-    lines.append(f"groupe : {data.at[id_obs, 'Groupe']}")
-    lines.append(f"observateur : {data.at[id_obs, 'PrenomNom']}")
-    lines.append(f"date : {pd.to_datetime(data.at[id_obs, 'Date_Releve'],format='%Y-%m-%d').strftime('%d %B %Y')}")
-    lines.append(f"coordonnées : ({data.at[id_obs, 'Latitude']}, {data.at[id_obs, 'Longitude']})")
-    if data.at[id_obs, 'annotation_latitude'] or data.at[id_obs, 'annotation_longitude']: 
-        lines.append(f":green[coordonnées corrigées : {data.at[id_obs, 'annotation_remarque']}]")
-    lines.append(f"spécimens observés : {int(data.at[id_obs, 'NbObs'])}")
-    lines.append(f"atypicité : {round(data.at[id_obs, 'Atypicité'], 3)}")
-    if data.at[id_obs, 'annotation_remarque']:
-        lines.append(f":green[remarque : {data.at[id_obs, 'annotation_remarque']}]")
+    if pd.notna(row.get('annotation_espece')) and row.get('annotation_espece'):
+        lines.append(f":green[**Espèce corrigée :** {row['annotation_espece']}]")
+    lines.append(f"**Groupe :** {row['Groupe']}")
+    lines.append(f"**Observateur :** {row['PrenomNom']}")
+    lines.append(f"**Date :** {pd.to_datetime(row['Date_Releve'],format='%Y-%m-%d').strftime('%d %B %Y')}")
+    lines.append(f"**Coordonnées :** ({row['Latitude']}, {row['Longitude']})")
+    if pd.notna(row.get('annotation_latitude')) or pd.notna(row.get('annotation_longitude')): 
+        lines.append(f":green[**Coordonnées corrigées :** {row.get('annotation_remarque')}]")
+    if pd.notna(row.get('NbObs')):
+        lines.append(f"**Spécimens observés :** {int(row['NbObs'])}")
+    # Affichage des scores d'atypicité comparés
+    score_nf = round(row['Atypicité_NFaure'], 3) if pd.notna(row.get('Atypicité_NFaure')) else np.nan
+    score_ko = round(row['Atypicité_Kohonen'], 3) if pd.notna(row.get('Atypicité_Kohonen')) else np.nan
+    score_freq = round(row['Atypicité_Frequency'], 3) if pd.notna(row.get('Atypicité_Frequency')) else np.nan
+    lines.append(f"**Scores d'atypicité :**")
+    lines.append(f"- N. Faure : {f'{score_nf} / 10' if not pd.isna(score_nf) else 'N/A'}")
+    lines.append(f"- Kohonen : {f'{score_ko} / 10' if not pd.isna(score_ko) else 'N/A'}")
+    lines.append(f"- Basé sur la fréquence : {f'{score_freq} / 10' if not pd.isna(score_freq) else 'N/A'}")
+    if pd.notna(row.get('annotation_remarque')):
+        lines.append(f":green[**Remarque :** {row['annotation_remarque']}]")
 
     # Use a single markdown with <br> to avoid extra vertical spacing between lines
     st.markdown("<br>".join(lines), unsafe_allow_html=True)
@@ -446,10 +595,16 @@ def afficher_metadonnees_releve(data, id_obs):
     id_obs : int
         Identifiant de l'observation.
     """
+    mask = data['ID'] == id_obs
+    if not mask.any():
+        st.error(f"ID inconnu dans les données filtrées : {id_obs}")
+        return
+    row = data.loc[mask].iloc[0]
+
     st.write("------")
-    st.write(f"code relevé : {data.at[id_obs, 'Code_Releve']}")
-    st.write(f"date relevé : {data.at[id_obs, 'Date_Releve']}")
-    st.write(f"observations dans le relevé : {data.at[id_obs, 'NbObs_Releve']}")
+    st.write(f"code relevé : {row['Code_Releve']}")
+    st.write(f"date relevé : {row['Date_Releve']}")
+    st.write(f"observations dans le relevé : {row['NbObs_Releve']}")
 
 
 actions_possibles = ["Modifier l'espèce/le nom de l'espèce", "Signaler un micro-milieux"]
@@ -561,7 +716,7 @@ if __name__ == "__main__":
     ###################################################
     # Chargement des donnees
     # msg = st.toast("Chargement des données...")
-    data, observateurs, especes = load_data(DATA_PATH)
+    data, observateurs, especes = load_data(DATA_PATH_NFAURE, DATA_PATH_KOHONEN)
 
     if "output_data" not in st.session_state:
         st.session_state.output_data =  pd.DataFrame(columns=data.columns)
@@ -592,26 +747,32 @@ if __name__ == "__main__":
         st.sidebar.subheader("Filtres") # menu de selection des filtres
         with st.sidebar.form(key="filtres"):
             st.session_state.filters = dict()
-            st.session_state.filters["PrenomNom"] = st.multiselect("Nom de l'observateur", observateurs, placeholder="Aucune sélection")
-            st.session_state.filters[species_column] = st.multiselect("Espèce", especes, placeholder="Aucune sélection")
+            st.session_state.filters["PrenomNom"] = st.multiselect("Nom de l'observateur", sorted(observateurs), placeholder="Aucune sélection")
+            st.session_state.filters[species_column] = st.multiselect("Espèce", sorted(especes), placeholder="Aucune sélection")
             st.session_state.filters["Debut"] = st.date_input("Du", value = "1990-01-01", min_value="1990-01-01", max_value="today", format="YYYY-MM-DD")
             st.session_state.filters["Fin"] = st.date_input("Jusqu'au", value = "today", min_value="1990-01-01", max_value="today", format="YYYY-MM-DD")
             st.session_state.filters["lo_Score"], st.session_state.filters["hi_Score"] = st.select_slider("Atypicité", options=[i for i in np.arange(0, 10.5, 0.5)], value=(0,10))
             st.session_state.filters['Top_atypicity'] = st.slider('Filter les plus atypiques', min_value=5, max_value=100, value=20, step=5)
             # st.markdown('''0 :green[----------]:yellow[----------]:orange[----------]:red[----------]:violet[----------] 10''') # légende
-            st.session_state.filters["Méthode"] = st.radio("Méthode de calcul de l'atypicité :", ["rank_ground_truth"])
+            st.session_state.filters["Méthode"] = st.radio("Méthode de calcul de l'atypicité :", ["rank_ground_truth", "kohonen", "frequency"])
 
             st.session_state.filtered = st.form_submit_button(label="Enregistrer") # validation des filtres
-            if st.session_state.filtered : #creation d'un subset des donnees filtrees
-                with st.sidebar.status("Selection des données...") as status:
+            
+            if st.session_state.filtered:
+                with st.sidebar.status("Sélection des données et calcul...") as status:
+                    # 1. Filtrage de base (dates, observateurs, etc.)
                     st.session_state.filtered_data = filter_data(data, st.session_state.filters)
-                    status.update(label='Données filtrées', state = "complete")
 
-                with st.sidebar.status("Calcul de l'atypicité sur les données filtrées...") as status:
+                    # 2. Mise à jour de la colonne 'Atypicité' selon la méthode choisie
                     st.session_state.filtered_data["Atypicité"] = compute_atypicity(st.session_state.filtered_data, 
                                                                                     data, st.session_state.filters["Méthode"])
-                    status.update(label='Atypicité calculée', state = "complete")
-                
+                    
+                    # 3. Application du filtre "Top atypicity" sur la base du score choisi
+                    st.session_state.filtered_data = st.session_state.filtered_data.sort_values(
+                        by="Atypicité", ascending=False
+                    ).head(int(st.session_state.filters['Top_atypicity']))
+                    
+                    status.update(label='Données prêtes', state="complete")
 
         clusters = st.sidebar.toggle("Affichage groupé")
         st.session_state.dpt = st.sidebar.toggle("Afficher le département de l'Isère", 
@@ -628,7 +789,7 @@ if __name__ == "__main__":
             if type(st.session_state.filtered_data) == type(None):
                 st.write("Veuillez filtrer les données")
             elif len(st.session_state.filtered_data) == 0:
-                st.error("Aucune observation ne correspond à ces critères")
+                st.error("Aucune observation ne correspond à ces critères. Veuillez essayer avec une autre méthode de calcul de l'atypicité ou en élargissant les filtres.")
             else :
                 map1, group1 = make_map(st.session_state.filtered_data,
                                 colormap,
@@ -726,7 +887,7 @@ if __name__ == "__main__":
                         hide_index=True, 
                         selection_mode="single-row",
                         on_select="rerun",
-                        column_order=("ID", species_column, "Nom_Valide", "Latitude", "Longitude", "PrenomNom", "NbObs", "Groupe", "Atypicité", "rank_ground_truth", "Code_Releve", "Date_Releve", "NbObs_Releve", "annotation_espece", "annotation_latitude", "annotation_longitude", "annotation_micro", "annotation_remarque", "validation"))
+                        column_order=("ID", species_column, "Nom_Valide", "Latitude", "Longitude", "PrenomNom", "NbObs", "Groupe", "Atypicité_NFaure", "Atypicité_Kohonen", "Atypicité_frequency", "rank_ground_truth", "RangEspUC", "Code_Releve", "Date_Releve", "NbObs_Releve", "annotation_espece", "annotation_latitude", "annotation_longitude", "annotation_micro", "annotation_remarque", "validation"))
                 
         else :
             st.subheader("Données brutes")
