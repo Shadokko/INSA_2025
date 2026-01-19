@@ -1,9 +1,9 @@
 DATA_PATH_NFAURE: "experiments/rerun_2025/result_export.csv" # "../../result_export.csv"  # in NF's computer: "experiments/rerun_2025/result_export.csv" 
 DATA_PATH_KOHONEN: "experiments/kohonen_results.csv"  # path to the kohonen results csv file
 
-VILLARET_PATH: "INSA/BDD Villaret.xlsx"
+VILLARET_PATH: "databases/BDD Villaret.xlsx"
 
-FACT_PATH: "INSA/Liens_Espece-FactAbiotique_MultiReferentiels.csv"
+FACT_PATH: "databases/Liens_Espece-FactAbiotique_MultiReferentiels.csv"
 
 species_list_path: "databases/mEspListe.rds" # path to .rds file containing list of species
 

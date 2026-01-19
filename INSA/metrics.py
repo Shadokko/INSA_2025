@@ -69,7 +69,7 @@ def compute_proportion_lower_atypicity(df_data, species_column, species, atypici
     percentage = round(100*sum_obs_with_lower_value/(len(df_species)-1), 1)
     return percentage
 
-def compute_atypicity(filtered_data, data, method):
+def compute_atypicity(filtered_data, data, method, species_column):
     """
     Calcule un score d'atypicité normalisé sur l'échelle 0-10, et ajoute une colonne "Atypicité" correspondante
 
@@ -86,7 +86,9 @@ def compute_atypicity(filtered_data, data, method):
         DataFrame complet utilisé pour déterminer l'échelle (min/max).
     method : str
         Méthode de calcul. Actuellement pris en charge : ``"rank_ground_truth"``.
-
+    species_column : str
+        Nom de la colonne contenant les noms d'espèces dans les DataFrames.
+    
     Returns
     -------
     numpy.ndarray
@@ -100,11 +102,30 @@ def compute_atypicity(filtered_data, data, method):
     """
 
     match method:
-        case "rank_ground_truth":
+        case "Atypicité_NFaure":
             minv = np.min(data["rank_ground_truth"])
             maxv = np.max(data["rank_ground_truth"])
             denom = maxv - minv
-            if denom == 0:
-                # Si toutes les valeurs sont identiques, on renvoie des zéros
+            if denom != 0:
+                return 10 * (filtered_data["rank_ground_truth"].values - minv) / denom
+            else:
                 return np.zeros(len(filtered_data))
-            return 10 * (filtered_data["rank_ground_truth"] - minv) / denom
+
+        case "Atypicité_Kohonen":
+            minv = np.min(data["RangEspUC"])
+            maxv = np.max(data["RangEspUC"])
+            denom = maxv - minv
+            if denom != 0:
+                return 10 * (filtered_data["RangEspUC"].values - minv) / denom
+            else:
+                return np.zeros(len(filtered_data))
+        
+        case "Atypicité_Fréquence":
+            # TODO: normaliser sur + petite / + grande fréquence observée
+            # Return an atypicity score based on species frequency in the whole dataset
+            species_counts = data[species_column].value_counts(normalize=True)
+            return filtered_data[species_column].map(lambda x: 10 * (1 - species_counts.get(x, 0))).values
+        
+        case "Atypicité_Hybride":
+            print("Méthode 'Atypicité_Hybride' non implémentée.")
+            return np.zeros(len(filtered_data))

@@ -104,35 +104,8 @@ def compute_atypicity_from_metrics(filtered_data, data, method):
     Si la plage (max-min) vaut 0, la fonction renvoie un vecteur de zéros 
     pour éviter une division par zéro.
     """
-    return metrics.compute_atypicity(filtered_data, data, method)
+    return metrics.compute_atypicity(filtered_data, data, method, species_column)
 
-    match method:
-        case "rank_ground_truth":
-            minv = np.min(data["rank_ground_truth"])
-            maxv = np.max(data["rank_ground_truth"])
-            denom = maxv - minv
-            if denom != 0:
-                return 10 * (filtered_data["rank_ground_truth"].values - minv) / denom
-            else:
-                return np.zeros(len(filtered_data))
-
-        case "kohonen":
-            minv = np.min(data["RangEspUC"])
-            maxv = np.max(data["RangEspUC"])
-            denom = maxv - minv
-            if denom != 0:
-                return 10 * (filtered_data["RangEspUC"].values - minv) / denom
-            else:
-                return np.zeros(len(filtered_data))
-        
-        case "frequency":
-            # Return an atypicity score based on species frequency in the whole dataset
-            species_counts = data[species_column].value_counts(normalize=True)
-            return filtered_data[species_column].map(lambda x: 10 * (1 - species_counts.get(x, 0))).values
-        
-        case "hybrid":
-            st.error("Méthode 'hybrid' non implémentée.")
-            return np.zeros(len(filtered_data))
 
 # TODO: charger aussi une liste de milieux "villaret", à des fins d'annotations milieux
 # TODO: charger les annotations déjà effectuée en initialisant st.session_state.output_data
@@ -254,24 +227,24 @@ def load_data(path_nfaure, path_kohonen):
 
 
     # Calcul des scores d'atypicité
-    data["Atypicité_NFaure"] = compute_atypicity(data, data, "rank_ground_truth")
-    data["Atypicité_Kohonen"] = compute_atypicity(data, data, "kohonen")
-    data["Atypicité_Frequency"] = compute_atypicity(data, data, "frequency")
-    # data["Atypicité_Hybrid"] = compute_atypicity(data, data, "hybrid")
+    data["Atypicité_NFaure"] = compute_atypicity_from_metrics(data, data, "Atypicité_NFaure")
+    data["Atypicité_Kohonen"] = compute_atypicity_from_metrics(data, data, "Atypicité_Kohonen")
+    data["Atypicité_Fréquence"] = compute_atypicity_from_metrics(data, data, "Atypicité_Fréquence")
+    # data["Atypicité_Hybride"] = compute_atypicity_from_metrics(data, data, "Atypicité_Hybride")
     
-    # Par défaut pour la carte, on peut créer une colonne 'Atypicité' basée sur le filtre actif
-    if "filtered_data" in st.session_state and st.session_state.filtered_data is not None:
-        method = st.session_state.filters["Méthode"]
-        if method == "rank_ground_truth":
-            data["Atypicité"] = data["Atypicité_NFaure"]
-        elif method == "kohonen":
-             data["Atypicité"] = data["Atypicité_Kohonen"]
-        elif method == "frequency":
-             data["Atypicité"] = data["Atypicité_Frequency"]
-        else:
-            st.error(f"Méthode '{method}' non implémentée pour la colonne 'Atypicité'.")
-    else:
-        data["Atypicité"] = data["Atypicité_Frequency"] # valeur par défaut
+    # # Par défaut pour la carte, on peut créer une colonne 'Atypicité' basée sur le filtre actif
+    # if "filtered_data" in st.session_state and st.session_state.filtered_data is not None:
+    #     method = st.session_state.filters["Méthode"]
+    #     if method == "rank_ground_truth":
+    #         data["Atypicité"] = data["Atypicité_NFaure"]
+    #     elif method == "kohonen":
+    #          data["Atypicité"] = data["Atypicité_Kohonen"]
+    #     elif method == "frequency":
+    #          data["Atypicité"] = data["Atypicité_Frequency"]
+    #     else:
+    #         st.error(f"Méthode '{method}' non implémentée pour la colonne 'Atypicité'.")
+    # else:
+    #     data["Atypicité"] = data["Atypicité_Frequency"] # valeur par défaut
 
     observateurs = list(data["PrenomNom"].unique())
 
@@ -357,7 +330,7 @@ def load_data_fact_abiotiques(filename):
     chunk_size = 1_000 # les données seront chargées par paquets pour aller plus vite
     chunks = [] # liste qui contiendra tous les paquets de données
 
-    for chunk in pd.read_csv(filename, sep=",", header=1,chunksize=chunk_size, 
+    for chunk in pd.read_csv(filename, sep="\t", header=3, chunksize=chunk_size,
                              usecols=["Nom flore", "Lumiere", "Temperature", "Humidite_edaphique", "Reaction_du_sol_(pH)", "Niveau_trophique", "Matiere_organique", "Salinite", "Texture", "Continentalite"]):
         chunks.append(chunk)
     data_fact = pd.concat(chunks, axis=0) # on fusionne tous les paquets pour obtenir les données complètes
@@ -397,6 +370,7 @@ def filter_data(data, filters):
             filtered_data = filtered_data.loc[[element in filters["PrenomNom"] for element in filtered_data["PrenomNom"]]] # on filtre par rapport à l'observateur
         if len(filters[species_column]) != 0: # si il y a un filtre sur l'espèce
             filtered_data = filtered_data.loc[[element in filters[species_column] for element in filtered_data[species_column]]] # on filtre par rapport à l'espèce
+        # TODO: ajouter vérification de l'existence de l'ID
         if filters["ID"]:
             filtered_data = filtered_data.loc[filtered_data["ID"]==filters["ID"]]
         if filters["Debut"] > filters["Fin"] : # si le dates choisies ne sont pas dans le bon ordre
@@ -406,9 +380,9 @@ def filter_data(data, filters):
             filtered_data = filtered_data.loc[pd.to_datetime(filtered_data["Date_Releve"],format='%Y-%m-%d').dt.date <= filters["Fin"]] # puis, on garde uniquement les données précédant la date de début choisie
         
         # filtered_data["Atypicité"] = compute_atypicity_from_metrics(filtered_data, data, filters["Méthode"])
-        filtered_data = filtered_data.loc[filtered_data["Atypicité"]<filters["hi_Score"]]
-        filtered_data = filtered_data.loc[filtered_data["Atypicité"]>filters["lo_Score"]]
-        filtered_data = filtered_data.sort_values(by="Atypicité", ascending=False).head(int(filters['Top_atypicity']))
+        filtered_data = filtered_data.loc[filtered_data[filters["Méthode"]]<filters["hi_Score"]]
+        filtered_data = filtered_data.loc[filtered_data[filters["Méthode"]]>filters["lo_Score"]]
+        filtered_data = filtered_data.sort_values(by=filters["Méthode"], ascending=False).head(int(filters['Top_atypicity']))
         return filtered_data, True
 
 
@@ -505,10 +479,10 @@ def make_map(df, colormap, toggle_clusters=False, toggle_dpt=False, annotated=[]
                             radius=radius,
                             color="black",
                             fill=True,
-                            fill_color=colormap(float(row.loc['Atypicité'])),
+                            fill_color=colormap(float(row.loc[st.session_state.filters["Méthode"]])),
                             fill_opacity=1,
-                            popup=f"ID : {row.ID}<br> espèce : {row[species_column]}<br> atypicité : {round(row.loc['Atypicité'], 3)}", 
-                            tooltip=f"ID : {row.ID}<br> espèce : {row[species_column]}<br> atypicité : {round(row.loc['Atypicité'], 3)}"
+                            popup=f"ID : {row.ID}<br> espèce : {row[species_column]}<br> atypicité : {round(row.loc[st.session_state.filters["Méthode"]], 3)}", 
+                            tooltip=f"ID : {row.ID}<br> espèce : {row[species_column]}<br> atypicité : {round(row.loc[st.session_state.filters["Méthode"]], 3)}"
                             ).add_to(group_1)
 
     if toggle_clusters : # affichage groupé des observations
@@ -658,7 +632,7 @@ def afficher_metadonnees(data, id_obs, output_data):
     # Affichage des scores d'atypicité comparés
     score_nf = round(row['Atypicité_NFaure'], 3) if pd.notna(row.get('Atypicité_NFaure')) else np.nan
     score_ko = round(row['Atypicité_Kohonen'], 3) if pd.notna(row.get('Atypicité_Kohonen')) else np.nan
-    score_freq = round(row['Atypicité_Frequency'], 3) if pd.notna(row.get('Atypicité_Frequency')) else np.nan
+    score_freq = round(row['Atypicité_Fréquence'], 3) if pd.notna(row.get('Atypicité_Fréquence')) else np.nan
     lines.append(f"**Scores d'atypicité :**")
     lines.append(f"- N. Faure : {f'{score_nf} / 10' if not pd.isna(score_nf) else 'N/A'}")
     lines.append(f"- Kohonen : {f'{score_ko} / 10' if not pd.isna(score_ko) else 'N/A'}")
@@ -730,12 +704,12 @@ def afficher_stats_atypicite(data, id_obs, output_data):
     lines = []
     lines.append(f"**spécimens observés** : {int(data.at[id_obs, 'NbObs'])}")
     lines.append(f"**fréquence de l'espèce** : {float(data.at[id_obs, 'Frequence_espece'][1:-1:])}")
-    lines.append(f"**atypicité** : {round(data.at[id_obs, 'Atypicité'], 3)}")
+    lines.append(f"**atypicité** : {round(data.at[id_obs, st.session_state.filters['Méthode']], 3)}")
     
     proportion_lower_atypicity = metrics.compute_proportion_lower_atypicity(data, 
                                                                     species_column,
                                                                     species = data.at[id_obs, species_column], 
-                                                                    atypicity = data.at[id_obs, "Atypicité"])
+                                                                    atypicity = data.at[id_obs, st.session_state.filters["Méthode"]])
     
     lines.append(f"-> cette observation est plus atypique que {proportion_lower_atypicity}% des observations de l'espèce")
     # Use a single markdown with <br> to avoid extra vertical spacing between lines
@@ -1021,7 +995,7 @@ def get_intra_inter_atypicity(df_data, Code_Releve):
         
     """
     
-    profil_intra = df_data.loc[df_data["Code_Releve"]==Code_Releve]["Atypicité"]
+    profil_intra = df_data.loc[df_data["Code_Releve"]==Code_Releve][st.session_state.filters["Méthode"]]
     profil_inter = metrics.compute_mean_atypicity_per_releve(df_data)
     
     return profil_intra, profil_inter
@@ -1065,8 +1039,7 @@ if __name__ == "__main__":
         
     if "filters" in st.session_state:
         filtered_data, st.session_state.filtered = filter_data(data, st.session_state.filters)
-        filtered_data["Atypicité"] = compute_atypicity_from_metrics(filtered_data, data, 
-                                                                      st.session_state.filters["Méthode"])
+
     else:
         filtered_data = None
         
@@ -1085,13 +1058,13 @@ if __name__ == "__main__":
             filters["PrenomNom"] = st.multiselect("Nom de l'observateur", sorted(observateurs), placeholder="Aucune sélection")
             filters[species_column] = st.multiselect("Espèce", sorted(especes), placeholder="Aucune sélection")
             # TODO: modifier le type de filtre (ID = str)
-            # filters["ID"] = st.number_input("ID", min_value=0, value=None, step=1)
+            filters["ID"] = st.text_input("ID", value=None, help="Format : CodeReleve_CodeEspece (ex : 12345_56789)")
             filters["Debut"] = st.date_input("Du", value = "1990-01-01", min_value="1990-01-01", max_value="today", format="YYYY-MM-DD")
             filters["Fin"] = st.date_input("Jusqu'au", value = "today", min_value="1990-01-01", max_value="today", format="YYYY-MM-DD")
             filters["lo_Score"], filters["hi_Score"] = st.select_slider("Atypicité", options=[i for i in np.arange(0, 10.5, 0.5)], value=(0,10))
             filters['Top_atypicity'] = st.slider('Filter les plus atypiques', min_value=5, max_value=100, value=20, step=5)
             # st.markdown('''0 :green[----------]:yellow[----------]:orange[----------]:red[----------]:violet[----------] 10''') # légende
-            filters["Méthode"] = st.radio("Méthode de calcul de l'atypicité :", ["rank_ground_truth", "kohonen", "frequency"])
+            filters["Méthode"] = st.radio("Méthode de calcul de l'atypicité :", ["Atypicité_NFaure", "Atypicité_Kohonen", "Atypicité_Fréquence"])
             
             
             submitted = st.form_submit_button(label="Enregistrer") # validation des filtres
@@ -1101,10 +1074,10 @@ if __name__ == "__main__":
                     filtered_data, st.session_state.filtered = filter_data(data, filters)
                     status.update(label='Données filtrées', state = "complete")
 
-                with st.sidebar.status("Calcul de l'atypicité sur les données filtrées...") as status:
-                    filtered_data["Atypicité"] = compute_atypicity_from_metrics(filtered_data, 
-                                                                                    data, filters["Méthode"])
-                    status.update(label='Atypicité calculée', state = "complete")
+                # with st.sidebar.status("Calcul de l'atypicité sur les données filtrées...") as status:
+                #     filtered_data["Atypicité"] = compute_atypicity_from_metrics(filtered_data, 
+                #                                                                     data, filters["Méthode"])
+                #     status.update(label='Atypicité calculée', state = "complete")
                     
                 st.session_state.filters = filters
                 st.session_state.id_obs = None
@@ -1264,7 +1237,7 @@ if __name__ == "__main__":
                 fig, ax = plt.subplots()
                 ax.hist(data.loc[data[species_column]==data.at[id_obs, species_column]]["Atypicité"],
                         bins=10, color="blue")
-                plt.axvline(x=data.at[id_obs, 'Atypicité'], color="red", label=f"Atypicité(observation) = {round(data.at[id_obs, 'Atypicité'], 3)}")
+                plt.axvline(x=data.at[id_obs, st.session_state.filters["Méthode"]], color="red", label=f"Atypicité(observation) = {round(data.at[id_obs, st.session_state.filters['Méthode']], 3)}")
                 #TODO : fix first loading
                 
                 plt.xlim((0,10))
@@ -1358,7 +1331,7 @@ if __name__ == "__main__":
             st.subheader(f"Données brutes (n = {len(filtered_data)})")
             st.dataframe(filtered_data.head(100), 
                         hide_index=True,
-                        column_order=("ID", species_column, "Nom_Valide", "Latitude", "Longitude", "PrenomNom", "NbObs", "Groupe", "Atypicité_NFaure", "Atypicité_Kohonen", "Atypicité_frequency", "rank_ground_truth", "RangEspUC", "Code_Releve", "Date_Releve", "NbObs_Releve", "annotation_espece", "annotation_latitude", "annotation_longitude", "annotation_micro", "annotation_remarque", "validation"))
+                        column_order=("ID", species_column, "Nom_Valide", "Latitude", "Longitude", "PrenomNom", "NbObs", "Groupe", "Atypicité_NFaure", "Atypicité_Kohonen", "Atypicité_Fréquence", "rank_ground_truth", "RangEspUC", "Code_Releve", "Date_Releve", "NbObs_Releve", "annotation_espece", "annotation_latitude", "annotation_longitude", "annotation_micro", "annotation_remarque", "validation"))
                 
 # TODO : ajouter code postal/commune
 # TODO : superposition cartes
