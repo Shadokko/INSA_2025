@@ -306,7 +306,7 @@ def load_Villaret(filename):
     if "Nom flore" in df_milieu_pour_chaque_espece.columns:
         df_milieu_pour_chaque_espece = df_milieu_pour_chaque_espece.rename(columns={"Nom flore": species_column})
 
-    if "Nom flore" in df_milieu_pour_chaque_espece.columns:
+    if "Nom flore" in df_especes_pour_chaque_milieu.columns:
         df_especes_pour_chaque_milieu = df_especes_pour_chaque_milieu.rename(columns={"Nom flore": species_column}) 
     
     dict_milieux = dict()
@@ -1158,6 +1158,12 @@ if __name__ == "__main__":
         st.session_state.last = None
         
     if "filters" in st.session_state:
+        # Si une méthode hybride était déjà sélectionnée, recalcule la colonne
+        # avec la pondération mémorisée avant le re-filtrage.
+        if st.session_state.filters.get("Méthode") == "Atypicité_Hybride":
+            w_nf = float(st.session_state.filters.get("hybrid_weight_nfaure", st.session_state.get("hybrid_weight_nfaure", 0.5)))
+            w_ko = 1.0 - w_nf
+            data["Atypicité_Hybride"] = w_nf * data["Atypicité_NFaure"] + w_ko * data["Atypicité_Kohonen"]
         filtered_data, st.session_state.filtered = filter_data(data, st.session_state.filters)
 
     else:
