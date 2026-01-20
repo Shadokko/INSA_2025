@@ -40,7 +40,7 @@ def compute_mean_atypicity_per_releve(data, atypicity_column):
     Parameters
     ----------
     data : pd.DataFrame
-        DataFrame contenant au moins les colonnes 'Code_Releve' et 'Atypicité'
+        DataFrame contenant au moins les colonnes 'Code_Releve' et la colonne d'atypicité spécifiée
     
     Returns
     -------
@@ -57,7 +57,7 @@ def compute_proportion_lower_atypicity(df_data, species_column, species, atypici
     Parameters
     ----------
     data : pd.DataFrame
-        DataFrame contenant au moins les colonnes 'Code_Releve' et 'Atypicité'
+        DataFrame contenant au moins les colonnes 'Code_Releve' et la colonne d'atypicité spécifiée
     
     Returns
     -------

@@ -294,17 +294,16 @@ def load_Villaret(filename):
     especes_pour_chaque_milieu : dict
         dictionnaire associant à chaque milieu la liste des espèces qui l'habitent
     """
-    
+
     df_noms_milieux = pd.read_excel(filename, skiprows=0, header=None, sheet_name="Villaret - fiche>nom", index_col=0, engine="openpyxl").rename(columns={1: "nom"})
     df_milieu_pour_chaque_espece = pd.read_excel(filename, skiprows=3, header=None, sheet_name="Villaret - espèce>fiche", index_col=0, engine="openpyxl").drop([1,2,3], axis=1)
     df_especes_pour_chaque_milieu = pd.read_excel(filename, skiprows=0, header=0, sheet_name="Villaret - fiche>espèces", engine="openpyxl")
-
     if "Nom flore" in df_milieu_pour_chaque_espece.columns:
         df_milieu_pour_chaque_espece = df_milieu_pour_chaque_espece.rename(columns={"Nom flore": species_column})
-        
+
     if "Nom flore" in df_milieu_pour_chaque_espece.columns:
         df_especes_pour_chaque_milieu = df_especes_pour_chaque_milieu.rename(columns={"Nom flore": species_column}) 
-
+    
     dict_milieux = dict()
     for i in range(len(df_noms_milieux)):
         dict_milieux[df_noms_milieux.index[i]] = df_noms_milieux.iat[i, 0]
@@ -343,6 +342,9 @@ def load_data_fact_abiotiques(filename):
         chunks.append(chunk)
     data_fact = pd.concat(chunks, axis=0) # on fusionne tous les paquets pour obtenir les données complètes
     data_fact = data_fact.dropna()
+
+    if "Nom flore" in data_fact.columns:
+        data_fact = data_fact.rename(columns={"Nom flore": species_column})
     
     if "Nom flore" in data_fact.columns:
         data_fact = data_fact.rename(columns={"Nom flore": species_column})
@@ -485,12 +487,12 @@ def make_map(df, colormap, toggle_clusters=False, toggle_dpt=False, annotated=[]
     for index, row in df.iterrows(): # on affiche les N marqueurs
         if row['ID'] in annotated: radius = 3
         else: radius = 7
-              
+
         if np.isnan(row[st.session_state.filters["Méthode"]]):
             fill_c = "white"
         else:
             fill_c = colormap(float(row[st.session_state.filters["Méthode"]]))
-        
+
         folium.CircleMarker(location=list(row.loc[['Latitude', 'Longitude']]),
                             radius=radius,
                             color="black",
@@ -552,7 +554,6 @@ def update_id_obs(st_data, filtered_data, current, last, type_annotation):
                 new = m.group(1).strip()
             except:
                 new = None
-                
     elif clicked and type_annotation!="coords":
         if isinstance(clicked, dict):
             if 'id' in clicked:
@@ -635,19 +636,19 @@ def afficher_metadonnees(data, id_obs, output_data):
             lines.append(f"**Espèce ({species_column}):** {row[species_column]} :green[→ {annotation_espece}]")
         else:
             lines.append(f"**Espèce ({species_column}):** {row[species_column]} :green[espèce non modifiée]")
-            
+
         lines.append(f"**Groupe :** {row['Groupe']}")
         lines.append(f"**Observateur :** {row['PrenomNom']}")
         lines.append(f"**Date :** {pd.to_datetime(row['Date_Releve'],format='%Y-%m-%d').strftime('%d %B %Y')}")
-        
+
         annotations_coords = output_data.loc[mask_out, ['annotation_latitude', 'annotation_longitude']].dropna()
         annotation_coords = annotations_coords.iloc[-1] if not annotations_coords.empty else None
-        
+
         if isinstance(annotation_coords, pd.Series) and (annotation_coords['annotation_latitude'] != row['Latitude'] or annotation_coords['annotation_longitude'] != row['Longitude']):
             lines.append(f"**Coordonnées :** ({row['Latitude']}, {row['Longitude']}) :green[→ ({annotation_coords['annotation_latitude']}, {annotation_coords['annotation_longitude']})]")
         else:
             lines.append(f"**Coordonnées :** ({row['Latitude']}, {row['Longitude']}) :green[position non modifiée]")
-            
+    
     else:
         lines.append(":red[**observation en attente d'annotation**]")
         lines.append(f"**Espèce ({species_column}):** {row[species_column]}")
@@ -658,6 +659,7 @@ def afficher_metadonnees(data, id_obs, output_data):
 
     if pd.notna(row.get('NbObs')):
         lines.append(f"**Spécimens observés :** {int(row['NbObs'])}")
+    
     # Affichage des scores d'atypicité comparés
     score_nf = round(row['Atypicité_NFaure'], 3) if pd.notna(row.get('Atypicité_NFaure')) else np.nan
     score_ko = round(row['Atypicité_Kohonen'], 3) if pd.notna(row.get('Atypicité_Kohonen')) else np.nan
@@ -668,7 +670,7 @@ def afficher_metadonnees(data, id_obs, output_data):
     lines.append(f"- Basé sur la fréquence : {f'{score_freq} / 10' if not pd.isna(score_freq) else 'N/A'}")
     
     if mask_out.any():
-        
+
         annotations_micro = output_data.loc[mask_out, 'annotation_micro'].dropna()
         annotation_micro = annotations_micro.iloc[-1] if not annotations_micro.empty else None
 
@@ -676,8 +678,8 @@ def afficher_metadonnees(data, id_obs, output_data):
             lines.append(f"**Micro-milieu :** :green[{annotation_micro}]")
         else:
             lines.append("**Micro-milieu :** :green[aucun micro-milieu signalé]")
-        
-        
+
+
         annotations_remarque = output_data.loc[mask_out, 'annotation_remarque'].dropna()
         annotation_remarque = annotations_remarque.iloc[-1] if not annotations_remarque.empty else None
 
@@ -685,7 +687,7 @@ def afficher_metadonnees(data, id_obs, output_data):
             lines.append(f"**Remarque :** :green[{annotation_remarque}]")
         else:
             lines.append("**Remarque :** :green[aucune remarque]")
-        
+
 
     # Use a single markdown with <br> to avoid extra vertical spacing between lines
     st.markdown("<br>".join(lines), unsafe_allow_html=True)
@@ -698,6 +700,7 @@ def afficher_metadonnees(data, id_obs, output_data):
 #         lines.append(f"**Remarque :** {row[species_column]} :green[→ {annotation_remarque}]")
 #     else:
 #         lines.append(f"**Remarque :** {row[species_column]} :green[aucune remarque]")
+
     
 
 @st.cache_data
@@ -832,7 +835,7 @@ def _save_annotation(id_obs, validation_key, type_annotation):
     if type_annotation is None : 
         st.error("Veuilez choisir une option d'annotation")
         return
-    
+
     if id_obs is None:
         st.error("Aucune observation sélectionnée — impossible de sauvegarder.")
         return
@@ -846,39 +849,40 @@ def _save_annotation(id_obs, validation_key, type_annotation):
     # Get the currently selected annotation for this observation (if any)
     select_key = f"select_{type_annotation}_{id_obs}"
     new_annotation = st.session_state.get(select_key, None)
-    
+
     if id_obs in list(st.session_state.output_data["ID"]):
         row = st.session_state.output_data.loc[st.session_state.output_data["ID"]==id_obs].copy()
     else:
         row = data.loc[data["ID"]==id_obs].copy()
-
+    
     if type_annotation == "coords":
         new_annotation = new_annotation.replace("(","").replace(")","").split(",")
         cols = ['latitude', 'longitude']
-        
+
         for i in range(2):
             annotation_col = 'annotation_' + cols[i]
-                
+
             # ensure annotation_col column exists
             if annotation_col not in row.columns:
                 row[annotation_col] = None
             if new_annotation is not None:
                 row.loc[:, annotation_col] = float(new_annotation[i].strip())
             # row = row.assign(validation=validation_status)
-            
+
             # st.session_state.output_data = pd.concat([
             #     st.session_state.output_data,
             #     row
             # ], ignore_index=True).drop_duplicates(subset=['ID'], keep='last')
-        
+
     else : 
         annotation_col = 'annotation_' + type_annotation
-            
+
         # ensure annotation_col column exists
         if annotation_col not in row.columns:
             row[annotation_col] = None
         if new_annotation is not None:
             row.loc[:, annotation_col] = new_annotation
+
         
     row = row.assign(validation=validation_status)
 
@@ -1092,6 +1096,41 @@ def get_default_annotation(filtered_data, type_annotation, id_obs, list_options)
     return default_index, default_espece
 
 
+def get_default_annotation(filtered_data, type_annotation, id_obs, list_options):
+    """
+    type_annotation parmi ["espece", "longitude", "latitude", "micro", "remarque"]
+    
+    """
+    col_annotation = "annotation_" + type_annotation
+
+    mask = filtered_data['ID'] == id_obs
+    if not mask.any():
+        st.error(f"ID inconnu dans les données filtrées : {id_obs}")
+        return
+    else :
+        row = filtered_data.loc[mask].iloc[0]
+
+    # Prefer previously saved annotation (in output_data) if present, otherwise use recorded species
+    default_espece = None
+    if hasattr(st.session_state, "output_data") and not st.session_state.output_data.empty:
+        prev = st.session_state.output_data.loc[st.session_state.output_data['ID']==id_obs, col_annotation]
+        if not prev.empty and pd.notna(prev.iloc[-1]):
+            default_espece = prev.iloc[-1]
+
+
+    if default_espece is None and (filtered_data is not None) and (id_obs in list(filtered_data['ID'])):
+        if row[col_annotation] and pd.notna(row[col_annotation]):
+            default_espece = row[col_annotation]
+        else:
+            default_espece = row[species_column] if id_obs in list(filtered_data['ID']) else None
+
+    if default_espece in list_options:
+        default_index = list_options.index(default_espece)
+    else:
+        default_index = 0
+
+    return default_index, default_espece
+
 if __name__ == "__main__":
 
     tab1, tab2 = st.tabs(["Visu&Annotation", "Statistiques"])
@@ -1121,6 +1160,12 @@ if __name__ == "__main__":
 
     else:
         filtered_data = None
+
+    if "last_clicked" not in st.session_state : 
+        st.session_state.clicked = None
+        st.session_state.last_clicked = None
+        st.session_state.type_annotation = None
+    
         
     if "last_clicked" not in st.session_state : 
         st.session_state.clicked = None
@@ -1188,14 +1233,14 @@ if __name__ == "__main__":
                                 annotated= st.session_state.output_data['ID'].to_list(),
                                 toggle_clusters=clusters, 
                                 toggle_dpt=st.session_state.dpt)
-                
+
                 if st.session_state.last_clicked is not None:
                     folium.Marker(
                                 location=st.session_state.last_clicked,
                                 icon=folium.Icon(color="red"),
                                 popup="Marker sélectionné"
                             ).add_to(map1)
-                
+
                 st_data1 = st_folium(map1, key='map1', 
                                      width=__width__)
         
@@ -1217,7 +1262,7 @@ if __name__ == "__main__":
                 actions_possibles = ["Modifier l'espèce/le nom de l'espèce", "Modifier la position", "Signaler un micro-milieux", "Autre (ajouter une remarque)"]
                 st.session_state.type_annotation = st.selectbox("Que souhaitez-vous faire ?", actions_possibles, index=None, placeholder="Veuillez choisir une option")
                 # annoter(data, action, st.session_state.id_obs, especes)
-                  
+
                 with st.form(key=form_key):
                     st.subheader("Annotation de l'observation")
                     # Update the selected id from the map component early so it is preserved across reruns
@@ -1250,24 +1295,24 @@ if __name__ == "__main__":
                             st.session_state.type_annotation = "coords"
                             select_key = f"select_coords_{st.session_state.id_obs}"
                             st.session_state.clicked = st_data1.get('last_clicked') if isinstance(st_data1, dict) else None
-                            
+
                             st.write("Clickez sur la carte pour choisir la nouvelle position de l'observation")
                             if st.session_state.clicked is None:
-        
+
                                 if st.session_state.last_clicked is None :
                                     st.write("Aucune position selectionnée")
-                                    
+
                                 else :
                                     st.write("Les nouvelles coordonnées seront : ")
                                     st.text_area("Les nouvelles coordonnées seront : ", value=st.session_state.last_clicked, key=select_key, height="content", disabled=True, label_visibility="collapsed", width="stretch")
-                                    
+
                             else :
                                 st.markdown(":small[Récupération des coordonnées...]")
                                 st.session_state.clicked = tuple(st.session_state.clicked.values())
                                 st.session_state.last_clicked = st.session_state.clicked
                                 st.rerun()
-                                
-                            
+
+
                         case "Autre (ajouter une remarque)":
                             if st.session_state.clicked is not None or st.session_state.last_clicked is not None:
                                 st.session_state.clicked = None
@@ -1276,7 +1321,7 @@ if __name__ == "__main__":
                             st.session_state.type_annotation = "remarque"
                             select_key = f"select_remarque_{st.session_state.id_obs}"
                             st.text_area("Saisissez ici vos remarques", key=select_key)
-                            
+
                         case None:
                             if st.session_state.clicked is not None or st.session_state.last_clicked is not None:
                                 st.session_state.clicked = None
@@ -1306,7 +1351,7 @@ if __name__ == "__main__":
                 afficher_metadonnees(filtered_data, 
                             st.session_state.id_obs, 
                             st.session_state.output_data)
-                
+        
         st.subheader("Annotations de la session en cours")
         if len(st.session_state.output_data)!=0:
             st.dataframe(st.session_state.output_data,
@@ -1314,6 +1359,7 @@ if __name__ == "__main__":
                          column_order=("ID", species_column, "Date_Releve", "annotation_espece", "annotation_latitude", "annotation_longitude", "annotation_micro", "annotation_remarque", "validation", "Atypicité_NFaure", "Atypicité_Kohonen", "Atypicité_Fréquence", ))
         else:
             st.write("Les annotations s'afficheront ici une fois enregistrées.")
+
     ###################################################
     # DEUXIEME ONGLET POUR LES STATISTIQUES
     with tab2: 
@@ -1324,7 +1370,7 @@ if __name__ == "__main__":
                 st.error(f"ID inconnu dans les données filtrées : {id_obs}")
             else :
                 row = data.loc[mask].iloc[0]
-            
+
             col_geo, col_atyp, col_rel = st.columns([1, 1, 1], border= True, gap=None)
             
             id_obs = st.session_state.id_obs
