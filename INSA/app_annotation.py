@@ -78,7 +78,7 @@ colormap = cm.LinearColormap(["green", "yellow", "red", "purple"], vmin=0, vmax=
 def compute_atypicity_from_metrics(filtered_data, data, method):
     """
     Appelle la fonction metrics.compute_atypicity, qui calcule un score d'atypicité normalisé sur 
-    l'échelle 0-10.
+    l'échelle 0-10, et ajoute une colonne "Atypicité" correspondante.
 
     Le calcul normalise la métrique choisie présente dans ``filtered_data`` 
     en utilisant l'étendue (min/max) calculée sur ``data`` (l'ensemble complet) 
@@ -92,8 +92,7 @@ def compute_atypicity_from_metrics(filtered_data, data, method):
     data : pandas.DataFrame
         DataFrame complet utilisé pour déterminer l'échelle (min/max).
     method : str
-        Méthode de calcul : "Atypicité_NFaure", "Atypicité_Kohonen",
-        "Atypicité_Fréquence" ou "Atypicité_Hybride".
+        Méthode de calcul : "rank_ground_truth", "kohonen", ou "frequency".
 
     Returns
     -------
@@ -213,9 +212,6 @@ def load_data(path_nfaure, path_kohonen):
     
     # On rajoute une colonne ID qui nous permettra d'identifier chaque ligne de façon unique : ID = "Code_Releve"_"Code_Espece"
     data["ID"] = data["Code_Releve"].astype(str) + "_" + data["Code_Espece"].astype(str)
-    
-    # Ajout d'une colonne "Frequence"
-    data["Frequence"] = metrics.compute_frequency(data, species_column)
 
     # Affichage d'informations sur le nouveau dataframe
     print(f"Données fusionnées : {len(data)} observations.")
@@ -235,8 +231,7 @@ def load_data(path_nfaure, path_kohonen):
     data["Atypicité_NFaure"] = compute_atypicity_from_metrics(data, data, "Atypicité_NFaure")
     data["Atypicité_Kohonen"] = compute_atypicity_from_metrics(data, data, "Atypicité_Kohonen")
     data["Atypicité_Fréquence"] = compute_atypicity_from_metrics(data, data, "Atypicité_Fréquence")
-    # Hybride : par défaut 50/50
-    data["Atypicité_Hybride"] = 0.5 * data["Atypicité_NFaure"] + 0.5 * data["Atypicité_Kohonen"]
+    # data["Atypicité_Hybride"] = compute_atypicity_from_metrics(data, data, "Atypicité_Hybride")
     
     # # Par défaut pour la carte, on peut créer une colonne 'Atypicité' basée sur le filtre actif
     # if "filtered_data" in st.session_state and st.session_state.filtered_data is not None:
@@ -351,6 +346,9 @@ def load_data_fact_abiotiques(filename):
     if "Nom flore" in data_fact.columns:
         data_fact = data_fact.rename(columns={"Nom flore": species_column})
     
+    if "Nom flore" in data_fact.columns:
+        data_fact = data_fact.rename(columns={"Nom flore": species_column})
+    
     return data_fact
 
 @st.cache_data
@@ -395,10 +393,10 @@ def filter_data(data, filters):
             filtered_data = filtered_data.loc[pd.to_datetime(filtered_data["Date_Releve"],format='%Y-%m-%d').dt.date <= filters["Fin"]] # puis, on garde uniquement les données précédant la date de début choisie
         
         # filtered_data["Atypicité"] = compute_atypicity_from_metrics(filtered_data, data, filters["Méthode"])
-        filtered_data = filtered_data.loc[filtered_data[filters["Méthode"]]<=filters["hi_Score"]]
-        filtered_data = filtered_data.loc[filtered_data[filters["Méthode"]]>=filters["lo_Score"]]
+        filtered_data = filtered_data.loc[filtered_data[filters["Méthode"]]<filters["hi_Score"]]
+        filtered_data = filtered_data.loc[filtered_data[filters["Méthode"]]>filters["lo_Score"]]
         filtered_data = filtered_data.sort_values(by=filters["Méthode"], ascending=False).head(int(filters['Top_atypicity']))
-        return filtered_data, True
+        return filtered_data, True 
 
 
 def compute_center(data):
@@ -542,6 +540,9 @@ def update_id_obs(st_data, filtered_data, current, last, type_annotation):
         Tuples d'IDs mis à jour. Si aucun changement détecté, retourne (current, last).
     """
 
+
+
+
     new = None
     popup = st_data.get('last_object_clicked_popup') if isinstance(st_data, dict) else None
     clicked = st_data.get('last_object_clicked') if isinstance(st_data, dict) else None
@@ -627,6 +628,7 @@ def afficher_metadonnees(data, id_obs, output_data):
             color = "grey"
         lines.append(f"**Statut:** :{color}[{validation_value if validation_value is not None else 'Non renseigné'}]")
 
+        
         annotations_espece = output_data.loc[mask_out, 'annotation_espece'].dropna()
         annotation_espece = annotations_espece.iloc[-1] if not annotations_espece.empty else None
 
@@ -700,6 +702,7 @@ def afficher_metadonnees(data, id_obs, output_data):
 #         lines.append(f"**Remarque :** {row[species_column]} :green[aucune remarque]")
 
     
+
 @st.cache_data
 def afficher_stats_geo(data, id_obs, output_data):
     """
@@ -880,6 +883,7 @@ def _save_annotation(id_obs, validation_key, type_annotation):
         if new_annotation is not None:
             row.loc[:, annotation_col] = new_annotation
 
+        
     row = row.assign(validation=validation_status)
 
     st.session_state.output_data = pd.concat([
@@ -1055,6 +1059,42 @@ def check_filtered_and_clicked(bool_filtered, id_obs):
     
     else: 
         return True
+    
+def get_default_annotation(filtered_data, type_annotation, id_obs, list_options):
+    """
+    type_annotation parmi ["espece", "longitude", "latitude", "micro", "remarque"]
+    
+    """
+    col_annotation = "annotation_" + type_annotation
+    
+    mask = filtered_data['ID'] == id_obs
+    if not mask.any():
+        st.error(f"ID inconnu dans les données filtrées : {id_obs}")
+        return
+    else :
+        row = filtered_data.loc[mask].iloc[0]
+        
+    # Prefer previously saved annotation (in output_data) if present, otherwise use recorded species
+    default_espece = None
+    if hasattr(st.session_state, "output_data") and not st.session_state.output_data.empty:
+        prev = st.session_state.output_data.loc[st.session_state.output_data['ID']==id_obs, col_annotation]
+        if not prev.empty and pd.notna(prev.iloc[-1]):
+            default_espece = prev.iloc[-1]
+        
+    
+    if default_espece is None and (filtered_data is not None) and (id_obs in list(filtered_data['ID'])):
+        if row[col_annotation] and pd.notna(row[col_annotation]):
+            default_espece = row[col_annotation]
+        else:
+            default_espece = row[species_column] if id_obs in list(filtered_data['ID']) else None
+
+    if default_espece in list_options:
+        default_index = list_options.index(default_espece)
+    else:
+        default_index = 0
+        
+    return default_index, default_espece
+
 
 def get_default_annotation(filtered_data, type_annotation, id_obs, list_options):
     """
@@ -1115,13 +1155,7 @@ if __name__ == "__main__":
         st.session_state.id_obs = None
         st.session_state.last = None
         
-    # Si une méthode hybride était déjà sélectionnée, recalcule la colonne
-    # avec la pondération mémorisée avant le re-filtrage.
     if "filters" in st.session_state:
-        if st.session_state.filters.get("Méthode") == "Atypicité_Hybride":
-            w_nf = float(st.session_state.filters.get("hybrid_weight_nfaure", st.session_state.get("hybrid_weight_nfaure", 0.5)))
-            w_ko = 1.0 - w_nf
-            data["Atypicité_Hybride"] = w_nf * data["Atypicité_NFaure"] + w_ko * data["Atypicité_Kohonen"]
         filtered_data, st.session_state.filtered = filter_data(data, st.session_state.filters)
 
     else:
@@ -1132,6 +1166,12 @@ if __name__ == "__main__":
         st.session_state.last_clicked = None
         st.session_state.type_annotation = None
     
+        
+    if "last_clicked" not in st.session_state : 
+        st.session_state.clicked = None
+        st.session_state.last_clicked = None
+        st.session_state.type_annotation = None
+
         
     ###################################################
     # Premier onglet pour la visualisation
@@ -1153,28 +1193,13 @@ if __name__ == "__main__":
             filters["lo_Score"], filters["hi_Score"] = st.select_slider("Atypicité", options=[i for i in np.arange(0, 10.5, 0.5)], value=(0,10))
             filters['Top_atypicity'] = st.slider('Filter les plus atypiques', min_value=5, max_value=100, value=20, step=5)
             # st.markdown('''0 :green[----------]:yellow[----------]:orange[----------]:red[----------]:violet[----------] 10''') # légende
-            filters["Méthode"] = st.radio("Méthode de calcul de l'atypicité :", ["Atypicité_NFaure", "Atypicité_Kohonen", "Atypicité_Fréquence", "Atypicité_Hybride"])
-
-            # Slider de pondération pour la méthode hybride
-            if filters["Méthode"] == "Atypicité_Hybride":
-                default_pct = int(100 * float(st.session_state.get("hybrid_weight_nfaure", 0.5)))
-                pct_nf = st.slider("Poids NFaure (%)", min_value=0, max_value=100, value=default_pct)
-                filters["hybrid_weight_nfaure"] = pct_nf / 100.0
-                filters["hybrid_weight_kohonen"] = 1.0 - filters["hybrid_weight_nfaure"]
-                st.caption(f"Pondération: NFaure {pct_nf}% | Kohonen {100 - pct_nf}%")
+            filters["Méthode"] = st.radio("Méthode de calcul de l'atypicité :", ["Atypicité_NFaure", "Atypicité_Kohonen", "Atypicité_Fréquence"])
             
             
             submitted = st.form_submit_button(label="Enregistrer") # validation des filtres
             if submitted : #creation d'un subset des donnees filtrees
                 with st.sidebar.status("Selection des données...") as status:
-                    # Applique immédiatement la pondération si méthode hybride
-                    if filters["Méthode"] == "Atypicité_Hybride":
-                        w_nf = float(filters.get("hybrid_weight_nfaure", st.session_state.get("hybrid_weight_nfaure", 0.5)))
-                        w_ko = 1.0 - w_nf
-                        data["Atypicité_Hybride"] = w_nf * data["Atypicité_NFaure"] + w_ko * data["Atypicité_Kohonen"]
-                        # mémorise la pondération dans la session
-                        st.session_state.hybrid_weight_nfaure = w_nf
-
+                    
                     filtered_data, st.session_state.filtered = filter_data(data, filters)
                     status.update(label='Données filtrées', state = "complete")
 
@@ -1225,7 +1250,6 @@ if __name__ == "__main__":
         #########################
         # Formulaire d'annotation
         with col_annot:
-
             st.subheader("Formulaire d'annotation")    
             if check_filtered_and_clicked(st.session_state.filtered, st.session_state.id_obs):
                 st.session_state.id_obs, st.session_state.last = update_id_obs(st_data1, filtered_data, st.session_state.id_obs, st.session_state.last, st.session_state.type_annotation)
@@ -1492,8 +1516,7 @@ if __name__ == "__main__":
             st.subheader(f"Données brutes (n = {len(filtered_data)})")
             st.dataframe(filtered_data.head(100), 
                         hide_index=True,
-                        column_order=("ID", species_column, "Nom_Valide", "Latitude", "Longitude", "PrenomNom", "NbObs", "Frequence", "Groupe", "Atypicité_NFaure", "Atypicité_Kohonen", "Atypicité_Fréquence", "Atypicité_Hybride", "rank_ground_truth", "RangEspUC", "Code_Releve", "Date_Releve", "NbObs_Releve", "annotation_espece", "annotation_latitude", "annotation_longitude", "annotation_micro", "annotation_remarque", "validation"))
-                
+                        column_order=("ID", species_column, "Nom_Valide", "Latitude", "Longitude", "PrenomNom", "NbObs", "Groupe", "Atypicité_NFaure", "Atypicité_Kohonen", "Atypicité_Fréquence", "rank_ground_truth", "RangEspUC", "Code_Releve", "Date_Releve", "NbObs_Releve", "annotation_espece", "annotation_latitude", "annotation_longitude", "annotation_micro", "annotation_remarque", "validation"))
 # TODO : ajouter code postal/commune
 # TODO : superposition cartes
                 
