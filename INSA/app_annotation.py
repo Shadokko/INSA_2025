@@ -1,6 +1,7 @@
 from pydoc import doc
 import streamlit as st
 import folium
+from folium.plugins import Draw
 from streamlit_folium import st_folium
 import pandas as pd
 import os
@@ -293,9 +294,16 @@ def load_Villaret(filename):
     especes_pour_chaque_milieu : dict
         dictionnaire associant à chaque milieu la liste des espèces qui l'habitent
     """
+    
     df_noms_milieux = pd.read_excel(filename, skiprows=0, header=None, sheet_name="Villaret - fiche>nom", index_col=0, engine="openpyxl").rename(columns={1: "nom"})
     df_milieu_pour_chaque_espece = pd.read_excel(filename, skiprows=3, header=None, sheet_name="Villaret - espèce>fiche", index_col=0, engine="openpyxl").drop([1,2,3], axis=1)
     df_especes_pour_chaque_milieu = pd.read_excel(filename, skiprows=0, header=0, sheet_name="Villaret - fiche>espèces", engine="openpyxl")
+
+    if "Nom flore" in df_milieu_pour_chaque_espece.columns:
+        df_milieu_pour_chaque_espece = df_milieu_pour_chaque_espece.rename(columns={"Nom flore": species_column})
+        
+    if "Nom flore" in df_milieu_pour_chaque_espece.columns:
+        df_especes_pour_chaque_milieu = df_especes_pour_chaque_milieu.rename(columns={"Nom flore": species_column}) 
 
     dict_milieux = dict()
     for i in range(len(df_noms_milieux)):
@@ -336,6 +344,9 @@ def load_data_fact_abiotiques(filename):
     data_fact = pd.concat(chunks, axis=0) # on fusionne tous les paquets pour obtenir les données complètes
     data_fact = data_fact.dropna()
     
+    if "Nom flore" in data_fact.columns:
+        data_fact = data_fact.rename(columns={"Nom flore": species_column})
+    
     return data_fact
 
 @st.cache_data
@@ -362,7 +373,7 @@ def filter_data(data, filters):
 
     filtered_data = data.copy() # pour l'instant, les données ne sont pas filtrées
     
-    if (len(filters["PrenomNom"]) == 0) and (len(st.session_state.filters[species_column]) == 0) and not st.session_state.filters["ID"]: # on vérifie que l'utilisateur a choisi au moins un observateur ou une espèce, sinon il y a trop de données à afficher, et c'est plus logique
+    if (len(filters["PrenomNom"]) == 0) and (len(filters[species_column]) == 0) and not filters["ID"]: # on vérifie que l'utilisateur a choisi au moins un observateur ou une espèce, sinon il y a trop de données à afficher, et c'est plus logique
         st.error("Veuillez choisir un observateur, une espèce ou un ID.") # erreur qui s'affiche si ce n'est pas le cas
         return filtered_data, False
     else :
@@ -383,7 +394,7 @@ def filter_data(data, filters):
         filtered_data = filtered_data.loc[filtered_data[filters["Méthode"]]<filters["hi_Score"]]
         filtered_data = filtered_data.loc[filtered_data[filters["Méthode"]]>filters["lo_Score"]]
         filtered_data = filtered_data.sort_values(by=filters["Méthode"], ascending=False).head(int(filters['Top_atypicity']))
-        return filtered_data, True
+        return filtered_data, True 
 
 
 def compute_center(data):
@@ -474,12 +485,17 @@ def make_map(df, colormap, toggle_clusters=False, toggle_dpt=False, annotated=[]
     for index, row in df.iterrows(): # on affiche les N marqueurs
         if row['ID'] in annotated: radius = 3
         else: radius = 7
-
+              
+        if np.isnan(row[st.session_state.filters["Méthode"]]):
+            fill_c = "white"
+        else:
+            fill_c = colormap(float(row[st.session_state.filters["Méthode"]]))
+        
         folium.CircleMarker(location=list(row.loc[['Latitude', 'Longitude']]),
                             radius=radius,
                             color="black",
                             fill=True,
-                            fill_color=colormap(float(row.loc[st.session_state.filters["Méthode"]])),
+                            fill_color=fill_c,
                             fill_opacity=1,
                             popup=f"ID : {row.ID}<br> espèce : {row[species_column]}<br> atypicité : {round(row.loc[st.session_state.filters["Méthode"]], 3)}", 
                             tooltip=f"ID : {row.ID}<br> espèce : {row[species_column]}<br> atypicité : {round(row.loc[st.session_state.filters["Méthode"]], 3)}"
@@ -496,7 +512,7 @@ def make_map(df, colormap, toggle_clusters=False, toggle_dpt=False, annotated=[]
     # return st_folium(map_, width=width, height=height, key=key, on_change=callback)
 
 
-def update_id_obs(st_data, filtered_data, current, last):
+def update_id_obs(st_data, filtered_data, current, last, type_annotation):
     """
     Met à jour l'ID de l'observation sélectionnée à partir des données
     d'évènement renvoyées par le composant Folium / Streamlit-Folium.
@@ -522,6 +538,9 @@ def update_id_obs(st_data, filtered_data, current, last):
         Tuples d'IDs mis à jour. Si aucun changement détecté, retourne (current, last).
     """
 
+
+
+
     new = None
     popup = st_data.get('last_object_clicked_popup') if isinstance(st_data, dict) else None
     clicked = st_data.get('last_object_clicked') if isinstance(st_data, dict) else None
@@ -533,7 +552,8 @@ def update_id_obs(st_data, filtered_data, current, last):
                 new = m.group(1).strip()
             except:
                 new = None
-    elif clicked:
+                
+    elif clicked and type_annotation!="coords":
         if isinstance(clicked, dict):
             if 'id' in clicked:
                 try:
@@ -607,6 +627,7 @@ def afficher_metadonnees(data, id_obs, output_data):
             color = "grey"
         lines.append(f"**Statut:** :{color}[{validation_value if validation_value is not None else 'Non renseigné'}]")
 
+        
         annotations_espece = output_data.loc[mask_out, 'annotation_espece'].dropna()
         annotation_espece = annotations_espece.iloc[-1] if not annotations_espece.empty else None
 
@@ -614,35 +635,71 @@ def afficher_metadonnees(data, id_obs, output_data):
             lines.append(f"**Espèce ({species_column}):** {row[species_column]} :green[→ {annotation_espece}]")
         else:
             lines.append(f"**Espèce ({species_column}):** {row[species_column]} :green[espèce non modifiée]")
+            
+        lines.append(f"**Groupe :** {row['Groupe']}")
+        lines.append(f"**Observateur :** {row['PrenomNom']}")
+        lines.append(f"**Date :** {pd.to_datetime(row['Date_Releve'],format='%Y-%m-%d').strftime('%d %B %Y')}")
+        
+        annotations_coords = output_data.loc[mask_out, ['annotation_latitude', 'annotation_longitude']].dropna()
+        annotation_coords = annotations_coords.iloc[-1] if not annotations_coords.empty else None
+        
+        if isinstance(annotation_coords, pd.Series) and (annotation_coords['annotation_latitude'] != row['Latitude'] or annotation_coords['annotation_longitude'] != row['Longitude']):
+            lines.append(f"**Coordonnées :** ({row['Latitude']}, {row['Longitude']}) :green[→ ({annotation_coords['annotation_latitude']}, {annotation_coords['annotation_longitude']})]")
+        else:
+            lines.append(f"**Coordonnées :** ({row['Latitude']}, {row['Longitude']}) :green[position non modifiée]")
+            
     else:
         lines.append(":red[**observation en attente d'annotation**]")
         lines.append(f"**Espèce ({species_column}):** {row[species_column]}")
+        lines.append(f"**Groupe :** {row['Groupe']}")
+        lines.append(f"**Observateur :** {row['PrenomNom']}")
+        lines.append(f"**Date :** {pd.to_datetime(row['Date_Releve'],format='%Y-%m-%d').strftime('%d %B %Y')}")
+        lines.append(f"**Coordonnées :** ({row['Latitude']}, {row['Longitude']})")
 
-
-    if pd.notna(row.get('annotation_espece')) and row.get('annotation_espece'):
-        lines.append(f":green[**Espèce corrigée :** {row['annotation_espece']}]")
-    lines.append(f"**Groupe :** {row['Groupe']}")
-    lines.append(f"**Observateur :** {row['PrenomNom']}")
-    lines.append(f"**Date :** {pd.to_datetime(row['Date_Releve'],format='%Y-%m-%d').strftime('%d %B %Y')}")
-    lines.append(f"**Coordonnées :** ({row['Latitude']}, {row['Longitude']})")
-    if pd.notna(row.get('annotation_latitude')) or pd.notna(row.get('annotation_longitude')): 
-        lines.append(f":green[**Coordonnées corrigées :** {row.get('annotation_remarque')}]")
     if pd.notna(row.get('NbObs')):
         lines.append(f"**Spécimens observés :** {int(row['NbObs'])}")
     # Affichage des scores d'atypicité comparés
     score_nf = round(row['Atypicité_NFaure'], 3) if pd.notna(row.get('Atypicité_NFaure')) else np.nan
     score_ko = round(row['Atypicité_Kohonen'], 3) if pd.notna(row.get('Atypicité_Kohonen')) else np.nan
     score_freq = round(row['Atypicité_Fréquence'], 3) if pd.notna(row.get('Atypicité_Fréquence')) else np.nan
-    lines.append(f"**Scores d'atypicité :**")
+    lines.append("**Scores d'atypicité :**")
     lines.append(f"- N. Faure : {f'{score_nf} / 10' if not pd.isna(score_nf) else 'N/A'}")
     lines.append(f"- Kohonen : {f'{score_ko} / 10' if not pd.isna(score_ko) else 'N/A'}")
     lines.append(f"- Basé sur la fréquence : {f'{score_freq} / 10' if not pd.isna(score_freq) else 'N/A'}")
-    if pd.notna(row.get('annotation_remarque')):
-        lines.append(f":green[**Remarque :** {row['annotation_remarque']}]")
+    
+    if mask_out.any():
+        
+        annotations_micro = output_data.loc[mask_out, 'annotation_micro'].dropna()
+        annotation_micro = annotations_micro.iloc[-1] if not annotations_micro.empty else None
+
+        if annotation_micro:
+            lines.append(f"**Micro-milieu :** :green[{annotation_micro}]")
+        else:
+            lines.append("**Micro-milieu :** :green[aucun micro-milieu signalé]")
+        
+        
+        annotations_remarque = output_data.loc[mask_out, 'annotation_remarque'].dropna()
+        annotation_remarque = annotations_remarque.iloc[-1] if not annotations_remarque.empty else None
+
+        if annotation_remarque:
+            lines.append(f"**Remarque :** :green[{annotation_remarque}]")
+        else:
+            lines.append("**Remarque :** :green[aucune remarque]")
+        
 
     # Use a single markdown with <br> to avoid extra vertical spacing between lines
     st.markdown("<br>".join(lines), unsafe_allow_html=True)
+
+# def show_annotations():
+#     annotations_remarque = output_data.loc[mask_out, 'annotation_remarque'].dropna()
+#     annotation_remarque = annotations_remarque.iloc[-1] if not annotations_remarque.empty else None
+
+#     if annotation_espece and annotation_espece != row[species_column]:
+#         lines.append(f"**Remarque :** {row[species_column]} :green[→ {annotation_remarque}]")
+#     else:
+#         lines.append(f"**Remarque :** {row[species_column]} :green[aucune remarque]")
     
+
 @st.cache_data
 def afficher_stats_geo(data, id_obs, output_data):
     """
@@ -664,20 +721,17 @@ def afficher_stats_geo(data, id_obs, output_data):
     et l'affiche en une seule fois pour éviter un espacement vertical excessif.
     """
     
-    # index_in_filtered_data = int(data["ID"].to_list().index(id_obs))
     lines = []
     lines.append(f"**ID** : {id_obs}")
-    lines.append(f"**coordonnées** : ({data.at[id_obs, 'Latitude']}, {data.at[id_obs, 'Longitude']})")
-    if data.at[id_obs, 'annotation_latitude'] or data.at[id_obs, 'annotation_longitude']: 
-        lines.append(f":green[coordonnées corrigées : {data.at[id_obs, 'annotation_remarque']}]")
-    lines.append(f"**commune** : {'À implémenter'}")
+    lines.append(f"**coordonnées** : ({row['Latitude']}, {row['Longitude']})")
+    # lines.append(f"**commune** : {'À implémenter'}")
     
     # Use a single markdown with <br> to avoid extra vertical spacing between lines
     st.markdown("<br>".join(lines), unsafe_allow_html=True)
     
     
 @st.cache_data
-def afficher_stats_atypicite(data, id_obs, output_data):
+def afficher_stats_atypicite(data, id_obs, output_data, method):
     """
     Affiche les informations de fréquence et d'atpicité associées à une observation et à son espèce.
 
@@ -700,23 +754,16 @@ def afficher_stats_atypicite(data, id_obs, output_data):
     et l'affiche en une seule fois pour éviter un espacement vertical excessif.
     """
     
-    # index_in_filtered_data = int(data["ID"].to_list().index(id_obs))
     lines = []
-    lines.append(f"**spécimens observés** : {int(data.at[id_obs, 'NbObs'])}")
-    lines.append(f"**fréquence de l'espèce** : {float(data.at[id_obs, 'Frequence_espece'][1:-1:])}")
-    lines.append(f"**atypicité** : {round(data.at[id_obs, st.session_state.filters['Méthode']], 3)}")
+    lines.append(f"**spécimens observés** : {int(row['NbObs'])}")
+    # lines.append(f"**fréquence de l'espèce** : {float(row['Frequence_espece'][1:-1:])}")
+    lines.append(f"**atypicité** : {round(row[method], 3)}")
     
-    proportion_lower_atypicity = metrics.compute_proportion_lower_atypicity(data, 
-                                                                    species_column,
-                                                                    species = data.at[id_obs, species_column], 
-                                                                    atypicity = data.at[id_obs, st.session_state.filters["Méthode"]])
-    
-    lines.append(f"-> cette observation est plus atypique que {proportion_lower_atypicity}% des observations de l'espèce")
     # Use a single markdown with <br> to avoid extra vertical spacing between lines
     st.markdown("<br>".join(lines), unsafe_allow_html=True)
 
 @st.cache_data
-def afficher_metadonnees_releve(data, id_obs):
+def afficher_stats_releve(data, id_obs):
     """
     Affiche des informations complémentaires sur le relevé auquel
     appartient l'observation sélectionnée : code et date du relevé, nombre d'observations, observateur.
@@ -738,42 +785,8 @@ def afficher_metadonnees_releve(data, id_obs):
     lines.append(f"**observateur** : {row['PrenomNom']}")
     lines.append(f"**code relevé** : {row['Code_Releve']}")
     lines.append(f"**date** : {data_utils.date_francaise(row['Date_Releve'])}")
-    lines.append(f"**observations dans le relevé** : {row['NbObs_Releve']}")
+    lines.append(f"**observations dans le relevé** : {int(row['NbObs_Releve'])}")
     st.markdown("<br>".join(lines), unsafe_allow_html=True)
-
-
-def annoter(data, action, id_obs, especes):
-    """
-    Effectue une action d'annotation sur une observation donnée.
-
-    Cette fonction modifie la table d'annotations en mémoire
-    (``st.session_state.output_data``) en fonction de l'action choisie.
-
-    Parameters
-    ----------
-    data : pandas.DataFrame
-        DataFrame contenant les observations (non modifié directement ici).
-    action : str
-        Action choisie (une des valeurs de ``actions_possibles``).
-    id_obs : int
-        Identifiant de l'observation ciblée.
-    especes : list
-        Liste des espèces possibles (utilisée pour la sélection).
-    """
-    if action is None:
-        return
-
-    match action:
-        case "Modifier l'espèce/le nom de l'espèce":
-            st.session_state.output_data.at[id_obs, "annotation_espece"] = st.selectbox("Nom de l'espèce", especes)
-            
-            st.selectbox(f"Modifier l'espèce (Valeur initiale: {default_espece})", especes, index=default_index, key=select_key)
-            
-        case "Signaler un micro-milieux":
-            st.session_state.output_data.at[id_obs, "annotation_micro"] = st.text_area("Description", "")
-    
-    # Autres actions possibles (position, validation, remarque) sont commentées
-    # et prêtes à être implémentées si nécessaire.
 
 def save_annotations(data, export_path):
     """
@@ -793,7 +806,7 @@ def save_annotations(data, export_path):
     data.to_csv(export_path, sep=";", index=False)
     st.success(f"Données exportées vers {export_path.resolve()}")
 
-def _save_annotation(id_obs, validation_key):
+def _save_annotation(id_obs, validation_key, type_annotation):
     """
     Sauvegarde en mémoire (session) l'annotation d'une observation sélectionnée.
 
@@ -816,6 +829,10 @@ def _save_annotation(id_obs, validation_key):
       lors du chargement initial).
     - Si ``st.session_state.output_data`` n'existe pas encore, elle l'initialise.
     """
+    if type_annotation is None : 
+        st.error("Veuilez choisir une option d'annotation")
+        return
+    
     if id_obs is None:
         st.error("Aucune observation sélectionnée — impossible de sauvegarder.")
         return
@@ -826,17 +843,43 @@ def _save_annotation(id_obs, validation_key):
     # read the current validation status from session state using the provided key
     validation_status = st.session_state.get(validation_key, None)
 
-    # Get the currently selected annotated species for this observation (if any)
-    select_key = f"select_espece_{id_obs}"
-    annotation_espece = st.session_state.get(select_key, None)
+    # Get the currently selected annotation for this observation (if any)
+    select_key = f"select_{type_annotation}_{id_obs}"
+    new_annotation = st.session_state.get(select_key, None)
+    
+    if id_obs in list(st.session_state.output_data["ID"]):
+        row = st.session_state.output_data.loc[st.session_state.output_data["ID"]==id_obs].copy()
+    else:
+        row = data.loc[data["ID"]==id_obs].copy()
 
-    row = data.loc[data["ID"]==id_obs].copy()
-    # ensure annotation_espece column exists
-    if 'annotation_espece' not in row.columns:
-        row['annotation_espece'] = None
-    if annotation_espece is not None:
-        row.loc[:, 'annotation_espece'] = annotation_espece
-
+    if type_annotation == "coords":
+        new_annotation = new_annotation.replace("(","").replace(")","").split(",")
+        cols = ['latitude', 'longitude']
+        
+        for i in range(2):
+            annotation_col = 'annotation_' + cols[i]
+                
+            # ensure annotation_col column exists
+            if annotation_col not in row.columns:
+                row[annotation_col] = None
+            if new_annotation is not None:
+                row.loc[:, annotation_col] = float(new_annotation[i].strip())
+            # row = row.assign(validation=validation_status)
+            
+            # st.session_state.output_data = pd.concat([
+            #     st.session_state.output_data,
+            #     row
+            # ], ignore_index=True).drop_duplicates(subset=['ID'], keep='last')
+        
+    else : 
+        annotation_col = 'annotation_' + type_annotation
+            
+        # ensure annotation_col column exists
+        if annotation_col not in row.columns:
+            row[annotation_col] = None
+        if new_annotation is not None:
+            row.loc[:, annotation_col] = new_annotation
+        
     row = row.assign(validation=validation_status)
 
     st.session_state.output_data = pd.concat([
@@ -973,7 +1016,7 @@ def get_df_fact(df_f, df_r, cols, species_column):
     
 
 @st.cache_data
-def get_intra_inter_atypicity(df_data, Code_Releve):
+def get_intra_inter_atypicity(df_data, Code_Releve, method):
     """
     Prépare les données d'atypicité avant de pouvoir les représenter sous forme de boxplot.
     
@@ -995,8 +1038,8 @@ def get_intra_inter_atypicity(df_data, Code_Releve):
         
     """
     
-    profil_intra = df_data.loc[df_data["Code_Releve"]==Code_Releve][st.session_state.filters["Méthode"]]
-    profil_inter = metrics.compute_mean_atypicity_per_releve(df_data)
+    profil_intra = df_data.loc[df_data["Code_Releve"]==Code_Releve, method].dropna()
+    profil_inter = metrics.compute_mean_atypicity_per_releve(df_data, method)
     
     return profil_intra, profil_inter
 
@@ -1012,6 +1055,42 @@ def check_filtered_and_clicked(bool_filtered, id_obs):
     
     else: 
         return True
+    
+def get_default_annotation(filtered_data, type_annotation, id_obs, list_options):
+    """
+    type_annotation parmi ["espece", "longitude", "latitude", "micro", "remarque"]
+    
+    """
+    col_annotation = "annotation_" + type_annotation
+    
+    mask = filtered_data['ID'] == id_obs
+    if not mask.any():
+        st.error(f"ID inconnu dans les données filtrées : {id_obs}")
+        return
+    else :
+        row = filtered_data.loc[mask].iloc[0]
+        
+    # Prefer previously saved annotation (in output_data) if present, otherwise use recorded species
+    default_espece = None
+    if hasattr(st.session_state, "output_data") and not st.session_state.output_data.empty:
+        prev = st.session_state.output_data.loc[st.session_state.output_data['ID']==id_obs, col_annotation]
+        if not prev.empty and pd.notna(prev.iloc[-1]):
+            default_espece = prev.iloc[-1]
+        
+    
+    if default_espece is None and (filtered_data is not None) and (id_obs in list(filtered_data['ID'])):
+        if row[col_annotation] and pd.notna(row[col_annotation]):
+            default_espece = row[col_annotation]
+        else:
+            default_espece = row[species_column] if id_obs in list(filtered_data['ID']) else None
+
+    if default_espece in list_options:
+        default_index = list_options.index(default_espece)
+    else:
+        default_index = 0
+        
+    return default_index, default_espece
+
 
 if __name__ == "__main__":
 
@@ -1043,6 +1122,12 @@ if __name__ == "__main__":
     else:
         filtered_data = None
         
+    if "last_clicked" not in st.session_state : 
+        st.session_state.clicked = None
+        st.session_state.last_clicked = None
+        st.session_state.type_annotation = None
+
+        
     ###################################################
     # Premier onglet pour la visualisation
 
@@ -1057,7 +1142,6 @@ if __name__ == "__main__":
             filters = dict()
             filters["PrenomNom"] = st.multiselect("Nom de l'observateur", sorted(observateurs), placeholder="Aucune sélection")
             filters[species_column] = st.multiselect("Espèce", sorted(especes), placeholder="Aucune sélection")
-            # TODO: modifier le type de filtre (ID = str)
             filters["ID"] = st.text_input("ID", value=None, help="Format : CodeReleve_CodeEspece (ex : 12345_56789)")
             filters["Debut"] = st.date_input("Du", value = "1990-01-01", min_value="1990-01-01", max_value="today", format="YYYY-MM-DD")
             filters["Fin"] = st.date_input("Jusqu'au", value = "today", min_value="1990-01-01", max_value="today", format="YYYY-MM-DD")
@@ -1104,67 +1188,101 @@ if __name__ == "__main__":
                                 annotated= st.session_state.output_data['ID'].to_list(),
                                 toggle_clusters=clusters, 
                                 toggle_dpt=st.session_state.dpt)
-
+                
+                if st.session_state.last_clicked is not None:
+                    folium.Marker(
+                                location=st.session_state.last_clicked,
+                                icon=folium.Icon(color="red"),
+                                popup="Marker sélectionné"
+                            ).add_to(map1)
+                
                 st_data1 = st_folium(map1, key='map1', 
                                      width=__width__)
         
-                st.session_state.id_obs, st.session_state.last = update_id_obs(st_data1, filtered_data, st.session_state.id_obs, st.session_state.last)
+                st.session_state.id_obs, st.session_state.last = update_id_obs(st_data1, filtered_data, st.session_state.id_obs, st.session_state.last, st.session_state.type_annotation)
 
 
         #########################
         # Formulaire d'annotation
         with col_annot:
-
             st.subheader("Formulaire d'annotation")    
             if check_filtered_and_clicked(st.session_state.filtered, st.session_state.id_obs):
-                st.session_state.id_obs, st.session_state.last = update_id_obs(st_data1, filtered_data, st.session_state.id_obs, st.session_state.last)
+                st.session_state.id_obs, st.session_state.last = update_id_obs(st_data1, filtered_data, st.session_state.id_obs, st.session_state.last, st.session_state.type_annotation)
                 st.button("Exporter les annotations", on_click=lambda: save_annotations(st.session_state.output_data, export_path))
      
                 form_key = f"annotation_{st.session_state.id_obs}"
-                select_key = f"select_espece_{st.session_state.id_obs}"
                 validation_key = f"validation_{st.session_state.id_obs}"
 
 
-                actions_possibles = ["Modifier l'espèce/le nom de l'espèce", "Signaler un micro-milieux"] #TODO
-                # # actions_possibles = ["Modifier l'espèce/le nom de l'espèce", "Modifier la position", "Signaler un micro-milieux", "Valider l'observation", "Autre"]
-                action = st.selectbox("Que souhaitez-vous faire ?", actions_possibles, index=None, placeholder="Veuillez choisir une option")
+                actions_possibles = ["Modifier l'espèce/le nom de l'espèce", "Modifier la position", "Signaler un micro-milieux", "Autre (ajouter une remarque)"]
+                st.session_state.type_annotation = st.selectbox("Que souhaitez-vous faire ?", actions_possibles, index=None, placeholder="Veuillez choisir une option")
                 # annoter(data, action, st.session_state.id_obs, especes)
-
-
+                  
                 with st.form(key=form_key):
                     st.subheader("Annotation de l'observation")
                     # Update the selected id from the map component early so it is preserved across reruns
 
                     id_obs = st.session_state.id_obs
 
-                    # if action is not None:
-                    match action:
+                    match st.session_state.type_annotation:
                         case "Modifier l'espèce/le nom de l'espèce":
-                            
-                            # def get_default_annotation():
-                            # Prefer previously saved annotation (in output_data) if present, otherwise use recorded species
-                            default_espece = None
-                            if hasattr(st.session_state, "output_data") and not st.session_state.output_data.empty:
-                                prev = st.session_state.output_data.loc[st.session_state.output_data['ID']==id_obs, 'annotation_espece']
-                                if not prev.empty and pd.notna(prev.iloc[-1]):
-                                    default_espece = prev.iloc[-1]
-        
-                            if default_espece is None and (filtered_data is not None) and (id_obs in filtered_data.index):
-                                if filtered_data.at[id_obs, 'annotation_espece'] and pd.notna(filtered_data.at[id_obs, 'annotation_espece']):
-                                    default_espece = filtered_data.at[id_obs, 'annotation_espece']
-                                else:
-                                    default_espece = filtered_data.at[id_obs, species_column] if id_obs in filtered_data.index else None
-        
-                            if default_espece in especes:
-                                default_index = especes.index(default_espece)
-                            else:
-                                default_index = 0
-        
+                            if st.session_state.clicked is not None or st.session_state.last_clicked is not None:
+                                st.session_state.clicked = None
+                                st.session_state.last_clicked = None
+                                st.rerun()
+                            st.session_state.type_annotation = "espece"
+                            select_key = f"select_espece_{st.session_state.id_obs}"
+                            default_index, default_espece = get_default_annotation(filtered_data, st.session_state.type_annotation, id_obs, especes)
                             st.selectbox(f"Modifier l'espèce (Valeur initiale: {default_espece})", especes, index=default_index, key=select_key)
                     
                     
                         case "Signaler un micro-milieux":
+                            if st.session_state.clicked is not None or st.session_state.last_clicked is not None:
+                                st.session_state.clicked = None
+                                st.session_state.last_clicked = None
+                                st.rerun()
+                            st.session_state.type_annotation = "micro"
+                            select_key = f"select_micro_{st.session_state.id_obs}"
+                            default_index, default_milieu = get_default_annotation(filtered_data, st.session_state.type_annotation, id_obs, list(dict_milieux.values()))
                             st.selectbox(f"Signaler un micro-milieu (Valeur initiale: {'default_milieu'})", np.sort(list(dict_milieux.values())), index=default_index, key=select_key)
+                    
+                        case "Modifier la position":
+                            st.session_state.type_annotation = "coords"
+                            select_key = f"select_coords_{st.session_state.id_obs}"
+                            st.session_state.clicked = st_data1.get('last_clicked') if isinstance(st_data1, dict) else None
+                            
+                            st.write("Clickez sur la carte pour choisir la nouvelle position de l'observation")
+                            if st.session_state.clicked is None:
+        
+                                if st.session_state.last_clicked is None :
+                                    st.write("Aucune position selectionnée")
+                                    
+                                else :
+                                    st.write("Les nouvelles coordonnées seront : ")
+                                    st.text_area("Les nouvelles coordonnées seront : ", value=st.session_state.last_clicked, key=select_key, height="content", disabled=True, label_visibility="collapsed", width="stretch")
+                                    
+                            else :
+                                st.markdown(":small[Récupération des coordonnées...]")
+                                st.session_state.clicked = tuple(st.session_state.clicked.values())
+                                st.session_state.last_clicked = st.session_state.clicked
+                                st.rerun()
+                                
+                            
+                        case "Autre (ajouter une remarque)":
+                            if st.session_state.clicked is not None or st.session_state.last_clicked is not None:
+                                st.session_state.clicked = None
+                                st.session_state.last_clicked = None
+                                st.rerun()
+                            st.session_state.type_annotation = "remarque"
+                            select_key = f"select_remarque_{st.session_state.id_obs}"
+                            st.text_area("Saisissez ici vos remarques", key=select_key)
+                            
+                        case None:
+                            if st.session_state.clicked is not None or st.session_state.last_clicked is not None:
+                                st.session_state.clicked = None
+                                st.session_state.last_clicked = None
+                                st.rerun()
+                            st.session_state.type_annotation = None
                     
                     # TODO: ajouter une option d'annotation milieu/micromilieu, en faisant appel à la liste Villaret. 
                     # La proposition des milieux peut être faite en fonction de l'espèce considérée (selon qu'elle est présente dans la liste d'espèce du dictionnaire ou non)
@@ -1175,7 +1293,7 @@ if __name__ == "__main__":
                     st.radio("Validation de la donnée:", ['Je confirme', 'Donnée douteuse', "Donnée fausse"], key=validation_key)
 
                     # pass the validation widget key so the callback reads the current value at execution time
-                    st.form_submit_button("Sauvegarder l'annotation", on_click=_save_annotation, args=(id_obs, validation_key))
+                    st.form_submit_button("Sauvegarder l'annotation", on_click=_save_annotation, args=(id_obs, validation_key, st.session_state.type_annotation))
 
 
         ###################################################
@@ -1184,16 +1302,29 @@ if __name__ == "__main__":
             st.subheader("Metadonnées de l'observation")
             
             if check_filtered_and_clicked(st.session_state.filtered, st.session_state.id_obs) : 
-                st.session_state.id_obs, st.session_state.last = update_id_obs(st_data1, filtered_data, st.session_state.id_obs, st.session_state.last)
+                st.session_state.id_obs, st.session_state.last = update_id_obs(st_data1, filtered_data, st.session_state.id_obs, st.session_state.last, st.session_state.type_annotation)
                 afficher_metadonnees(filtered_data, 
                             st.session_state.id_obs, 
                             st.session_state.output_data)
-
-
+                
+        st.subheader("Annotations de la session en cours")
+        if len(st.session_state.output_data)!=0:
+            st.dataframe(st.session_state.output_data,
+                         hide_index=True,
+                         column_order=("ID", species_column, "Date_Releve", "annotation_espece", "annotation_latitude", "annotation_longitude", "annotation_micro", "annotation_remarque", "validation", "Atypicité_NFaure", "Atypicité_Kohonen", "Atypicité_Fréquence", ))
+        else:
+            st.write("Les annotations s'afficheront ici une fois enregistrées.")
     ###################################################
     # DEUXIEME ONGLET POUR LES STATISTIQUES
     with tab2: 
         if check_filtered_and_clicked(st.session_state.filtered, st.session_state.id_obs) :
+            
+            mask = data['ID'] == id_obs
+            if not mask.any():
+                st.error(f"ID inconnu dans les données filtrées : {id_obs}")
+            else :
+                row = data.loc[mask].iloc[0]
+            
             col_geo, col_atyp, col_rel = st.columns([1, 1, 1], border= True, gap=None)
             
             id_obs = st.session_state.id_obs
@@ -1207,10 +1338,10 @@ if __name__ == "__main__":
                             st.session_state.output_data)
                 
 
-                st.text(f"Carte des observations de {data.at[id_obs, species_column]} :",
-                          help = "L'ensemble des observations disponibles pour l'espèce sont affichées. La couleur des points correspond à leur atypicité. Il n'est pas possible de sélectionner une observation depuis cet affichage.")
+                st.text(f"Carte des observations de {row[species_column]} :",
+                          help = "L'ensemble des observations disponibles pour l'espèce sont affichées. La couleur des points correspond à leur atypicité. Une atypicité non calculable avec la méthode sélectionnée correspond à la couleur blanche. Il n'est pas possible de sélectionner une observation depuis cet affichage.")
                 
-                map2, group2 = make_map(data.loc[data[species_column]==data.at[id_obs, species_column]],
+                map2, group2 = make_map(data.loc[data[species_column]==row[species_column]],
                                 colormap,
                                 annotated= st.session_state.output_data['ID'].to_list(),
                                 toggle_clusters=False, 
@@ -1225,19 +1356,27 @@ if __name__ == "__main__":
                 st.subheader("Données de fréquence")
                 afficher_stats_atypicite(data, 
                             id_obs, 
-                            st.session_state.output_data)
+                            st.session_state.output_data,
+                            st.session_state.filters['Méthode'])
                 
-                st.write("")
+                proportion_lower_atypicity = metrics.compute_proportion_lower_atypicity(data, 
+                                                                                species_column,
+                                                                                species = row[species_column], 
+                                                                                atypicity = row[st.session_state.filters["Méthode"]],
+                                                                                atypicity_column = st.session_state.filters["Méthode"])
+
+                st.text(f"-> cette observation est plus atypique que {proportion_lower_atypicity}% des observations de l'espèce", 
+                        help="Attention, les données dont l'atypicité ne peut pas être calculée avec la méthode choisie sont ignorées.")
                 
                 ###################################################
                 # Histogramme des atypicités de l'espèce
-                st.text(f"Histogramme des atypicités des spécimens de {data.at[id_obs, species_column]} :",
+                st.text(f"Histogramme des atypicités des spécimens de {row[species_column]} :",
                         help="La ligne rouge correspond à l'observation en cours d'affichage. Les colonnes bleues correspondent au nombre d'observations pour une valeur d'atypicité donnée")
 
                 fig, ax = plt.subplots()
-                ax.hist(data.loc[data[species_column]==data.at[id_obs, species_column]]["Atypicité"],
+                ax.hist(data.loc[data[species_column]==row[species_column]][st.session_state.filters["Méthode"]],
                         bins=10, color="blue")
-                plt.axvline(x=data.at[id_obs, st.session_state.filters["Méthode"]], color="red", label=f"Atypicité(observation) = {round(data.at[id_obs, st.session_state.filters['Méthode']], 3)}")
+                plt.axvline(x=row[st.session_state.filters["Méthode"]], color="red", label=f"Atypicité(observation) = {round(row[st.session_state.filters['Méthode']], 3)}")
                 #TODO : fix first loading
                 
                 plt.xlim((0,10))
@@ -1253,11 +1392,11 @@ if __name__ == "__main__":
                 st.text("Comparaison des atypicités intra- et inter-relevés :",
                          help="Boxplot. L'atypicité moyenne de chaque relevé a été calculée pour obtenir le profil de droite. En rouge, les médianes.")
                 
-                profil_intra, profil_inter = get_intra_inter_atypicity(data, Code_Releve=data.at[id_obs, "Code_Releve"])
+                profil_intra, profil_inter = get_intra_inter_atypicity(data, Code_Releve=row["Code_Releve"], method=st.session_state.filters['Méthode'])
                 
                 fig, ax = plt.subplots()
                 ax.boxplot([profil_intra, profil_inter])
-                ax.set_xticklabels([f"Profil du relevé n°{data.at[id_obs, 'Code_Releve']} \n (Intra)", 
+                ax.set_xticklabels([f"Profil du relevé n°{row['Code_Releve']} \n (Intra)", 
                                     "Profil de l'ensemble des relevés \n (Inter)"])
                 plt.ylabel("Atypicité")
                 st.pyplot(fig)
@@ -1268,10 +1407,10 @@ if __name__ == "__main__":
             with col_rel :
                 st.subheader("Données du relevé")
                 
-                afficher_metadonnees_releve(data, id_obs)
+                afficher_stats_releve(data, id_obs)
                 
                 # dataframe et sets contenant les infos du relevé
-                df_releve, set_releve = get_releve(data, data.at[id_obs, 'Code_Releve'])
+                df_releve, set_releve = get_releve(data, row['Code_Releve'])
                 set_milieu = get_set_milieu(set_releve, milieu_pour_chaque_espece)
                 
                 ###################################################
@@ -1279,7 +1418,7 @@ if __name__ == "__main__":
                 st.write("**Observations du relevé** :")
                 st.dataframe(df_releve, 
                              hide_index=True, 
-                             column_order=("ID", species_column, "Nom_Valide", "NbObs", "Atypicité"),
+                             column_order=("ID", species_column, "Nom_Valide", "NbObs", st.session_state.filters["Méthode"]),
                              height = min(200, len(df_releve)*60))
                 
 
@@ -1332,7 +1471,6 @@ if __name__ == "__main__":
             st.dataframe(filtered_data.head(100), 
                         hide_index=True,
                         column_order=("ID", species_column, "Nom_Valide", "Latitude", "Longitude", "PrenomNom", "NbObs", "Groupe", "Atypicité_NFaure", "Atypicité_Kohonen", "Atypicité_Fréquence", "rank_ground_truth", "RangEspUC", "Code_Releve", "Date_Releve", "NbObs_Releve", "annotation_espece", "annotation_latitude", "annotation_longitude", "annotation_micro", "annotation_remarque", "validation"))
-                
 # TODO : ajouter code postal/commune
 # TODO : superposition cartes
                 

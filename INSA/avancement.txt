@@ -30,6 +30,7 @@ Amélioration visuelle des graphiques du 2e onglet (grid et xlabel)
 Ajout de bulles d'informations pour expliquer les résultats du 2e onglet
 Affichage de messages explicatifs quand il n'y a aucune correspondance pour l'indice de Jaccard (Villaret) ou le profil écologique (indices d'Ellenberg)
 Séparation en modules 'metrics' et 'data_utils'
+Ajout de nouvelles options d'annotation : position et remarque
 
 En cours :
 Lier le tableau de données affiché à la carte et aux métadonnées affichées

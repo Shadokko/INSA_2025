@@ -33,7 +33,7 @@ def indice_jaccard(set1, set2):
     indice = cardinal_inter/cardinal_union
     return cardinal_inter, indice
 
-def compute_mean_atypicity_per_releve(data):
+def compute_mean_atypicity_per_releve(data, atypicity_column):
     """
     Calcule la moyenne de l'atypicité par relevé dans tout le dataframe.
     
@@ -47,10 +47,10 @@ def compute_mean_atypicity_per_releve(data):
     pd.Series
         Moyenne de l'atypicité pour chaque 'Code_Releve'
     """
-    return data[["Code_Releve", "Atypicité"]].groupby(["Code_Releve"]).mean()["Atypicité"]
+    return data[["Code_Releve", atypicity_column]].groupby(["Code_Releve"]).mean()[atypicity_column].dropna()
 
 
-def compute_proportion_lower_atypicity(df_data, species_column, species, atypicity):
+def compute_proportion_lower_atypicity(df_data, species_column, species, atypicity, atypicity_column):
     """
     Calcule le pourcentage des
     
@@ -64,8 +64,9 @@ def compute_proportion_lower_atypicity(df_data, species_column, species, atypici
     percentage : 
         Pourcentage des observations de l'espèce qui ont une atypicité inférieure à l'observation, arrondi aux dixièmes
     """
-    df_species = df_data.loc[df_data[species_column]==species]
-    sum_obs_with_lower_value = sum(df_species["Atypicité"] < atypicity)
+    
+    df_species = df_data.loc[df_data[species_column]==species, [species_column, atypicity_column]].dropna()
+    sum_obs_with_lower_value = sum(df_species[atypicity_column] < atypicity) 
     percentage = round(100*sum_obs_with_lower_value/(len(df_species)-1), 1)
     return percentage
 
