@@ -78,7 +78,7 @@ colormap = cm.LinearColormap(["green", "yellow", "red", "purple"], vmin=0, vmax=
 def compute_atypicity_from_metrics(filtered_data, data, method):
     """
     Appelle la fonction metrics.compute_atypicity, qui calcule un score d'atypicité normalisé sur 
-    l'échelle 0-10, et ajoute une colonne "Atypicité" correspondante.
+    l'échelle 0-10.
 
     Le calcul normalise la métrique choisie présente dans ``filtered_data`` 
     en utilisant l'étendue (min/max) calculée sur ``data`` (l'ensemble complet) 
@@ -92,7 +92,8 @@ def compute_atypicity_from_metrics(filtered_data, data, method):
     data : pandas.DataFrame
         DataFrame complet utilisé pour déterminer l'échelle (min/max).
     method : str
-        Méthode de calcul : "rank_ground_truth", "kohonen", ou "frequency".
+        Méthode de calcul : "Atypicité_NFaure", "Atypicité_Kohonen",
+        "Atypicité_Fréquence" ou "Atypicité_Hybride".
 
     Returns
     -------
@@ -213,6 +214,9 @@ def load_data(path_nfaure, path_kohonen):
     # On rajoute une colonne ID qui nous permettra d'identifier chaque ligne de façon unique : ID = "Code_Releve"_"Code_Espece"
     data["ID"] = data["Code_Releve"].astype(str) + "_" + data["Code_Espece"].astype(str)
 
+    # Ajout d'une colonne "Frequence"
+    data["Frequence"] = metrics.compute_frequency(data, species_column)
+
     # Affichage d'informations sur le nouveau dataframe
     print(f"Données fusionnées : {len(data)} observations.")
     # Nb de données qui ont à la fois rank_ground_truth et Code_Observation => données présentes dans les deux datasets
@@ -231,7 +235,8 @@ def load_data(path_nfaure, path_kohonen):
     data["Atypicité_NFaure"] = compute_atypicity_from_metrics(data, data, "Atypicité_NFaure")
     data["Atypicité_Kohonen"] = compute_atypicity_from_metrics(data, data, "Atypicité_Kohonen")
     data["Atypicité_Fréquence"] = compute_atypicity_from_metrics(data, data, "Atypicité_Fréquence")
-    # data["Atypicité_Hybride"] = compute_atypicity_from_metrics(data, data, "Atypicité_Hybride")
+    # Hybride : par défaut 50/50
+    data["Atypicité_Hybride"] = 0.5 * data["Atypicité_NFaure"] + 0.5 * data["Atypicité_Kohonen"]
     
     # # Par défaut pour la carte, on peut créer une colonne 'Atypicité' basée sur le filtre actif
     # if "filtered_data" in st.session_state and st.session_state.filtered_data is not None:
@@ -346,9 +351,6 @@ def load_data_fact_abiotiques(filename):
     if "Nom flore" in data_fact.columns:
         data_fact = data_fact.rename(columns={"Nom flore": species_column})
     
-    if "Nom flore" in data_fact.columns:
-        data_fact = data_fact.rename(columns={"Nom flore": species_column})
-    
     return data_fact
 
 @st.cache_data
@@ -393,8 +395,8 @@ def filter_data(data, filters):
             filtered_data = filtered_data.loc[pd.to_datetime(filtered_data["Date_Releve"],format='%Y-%m-%d').dt.date <= filters["Fin"]] # puis, on garde uniquement les données précédant la date de début choisie
         
         # filtered_data["Atypicité"] = compute_atypicity_from_metrics(filtered_data, data, filters["Méthode"])
-        filtered_data = filtered_data.loc[filtered_data[filters["Méthode"]]<filters["hi_Score"]]
-        filtered_data = filtered_data.loc[filtered_data[filters["Méthode"]]>filters["lo_Score"]]
+        filtered_data = filtered_data.loc[filtered_data[filters["Méthode"]]<=filters["hi_Score"]]
+        filtered_data = filtered_data.loc[filtered_data[filters["Méthode"]]>=filters["lo_Score"]]
         filtered_data = filtered_data.sort_values(by=filters["Méthode"], ascending=False).head(int(filters['Top_atypicity']))
         return filtered_data, True 
 
@@ -1160,12 +1162,6 @@ if __name__ == "__main__":
 
     else:
         filtered_data = None
-
-    if "last_clicked" not in st.session_state : 
-        st.session_state.clicked = None
-        st.session_state.last_clicked = None
-        st.session_state.type_annotation = None
-    
         
     if "last_clicked" not in st.session_state : 
         st.session_state.clicked = None
@@ -1193,12 +1189,27 @@ if __name__ == "__main__":
             filters["lo_Score"], filters["hi_Score"] = st.select_slider("Atypicité", options=[i for i in np.arange(0, 10.5, 0.5)], value=(0,10))
             filters['Top_atypicity'] = st.slider('Filter les plus atypiques', min_value=5, max_value=100, value=20, step=5)
             # st.markdown('''0 :green[----------]:yellow[----------]:orange[----------]:red[----------]:violet[----------] 10''') # légende
-            filters["Méthode"] = st.radio("Méthode de calcul de l'atypicité :", ["Atypicité_NFaure", "Atypicité_Kohonen", "Atypicité_Fréquence"])
+            filters["Méthode"] = st.radio("Méthode de calcul de l'atypicité :", ["Atypicité_NFaure", "Atypicité_Kohonen", "Atypicité_Fréquence", "Atypicité_Hybride"])
+
+            # Slider de pondération pour la méthode hybride
+            if filters["Méthode"] == "Atypicité_Hybride":
+                default_pct = int(100 * float(st.session_state.get("hybrid_weight_nfaure", 0.5)))
+                pct_nf = st.slider("Poids NFaure (%)", min_value=0, max_value=100, value=default_pct)
+                filters["hybrid_weight_nfaure"] = pct_nf / 100.0
+                filters["hybrid_weight_kohonen"] = 1.0 - filters["hybrid_weight_nfaure"]
+                st.caption(f"Pondération: NFaure {pct_nf}% | Kohonen {100 - pct_nf}%")
             
             
             submitted = st.form_submit_button(label="Enregistrer") # validation des filtres
             if submitted : #creation d'un subset des donnees filtrees
                 with st.sidebar.status("Selection des données...") as status:
+                    # Applique immédiatement la pondération si méthode hybride
+                    if filters["Méthode"] == "Atypicité_Hybride":
+                        w_nf = float(filters.get("hybrid_weight_nfaure", st.session_state.get("hybrid_weight_nfaure", 0.5)))
+                        w_ko = 1.0 - w_nf
+                        data["Atypicité_Hybride"] = w_nf * data["Atypicité_NFaure"] + w_ko * data["Atypicité_Kohonen"]
+                        # mémorise la pondération dans la session
+                        st.session_state.hybrid_weight_nfaure = w_nf
                     
                     filtered_data, st.session_state.filtered = filter_data(data, filters)
                     status.update(label='Données filtrées', state = "complete")
@@ -1516,7 +1527,7 @@ if __name__ == "__main__":
             st.subheader(f"Données brutes (n = {len(filtered_data)})")
             st.dataframe(filtered_data.head(100), 
                         hide_index=True,
-                        column_order=("ID", species_column, "Nom_Valide", "Latitude", "Longitude", "PrenomNom", "NbObs", "Groupe", "Atypicité_NFaure", "Atypicité_Kohonen", "Atypicité_Fréquence", "rank_ground_truth", "RangEspUC", "Code_Releve", "Date_Releve", "NbObs_Releve", "annotation_espece", "annotation_latitude", "annotation_longitude", "annotation_micro", "annotation_remarque", "validation"))
+                        column_order=("ID", species_column, "Nom_Valide", "Latitude", "Longitude", "PrenomNom", "NbObs", "Frequence", "Groupe", "Atypicité_NFaure", "Atypicité_Kohonen", "Atypicité_Fréquence", "Atypicité_Hybride", "rank_ground_truth", "RangEspUC", "Code_Releve", "Date_Releve", "NbObs_Releve", "annotation_espece", "annotation_latitude", "annotation_longitude", "annotation_micro", "annotation_remarque", "validation"))
 # TODO : ajouter code postal/commune
 # TODO : superposition cartes
                 
