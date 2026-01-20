@@ -1,7 +1,6 @@
 from pydoc import doc
 import streamlit as st
 import folium
-from folium.plugins import Draw
 from streamlit_folium import st_folium
 import pandas as pd
 import os
@@ -33,7 +32,6 @@ Ce module fournit :
 
 st.set_page_config(layout="wide")
 
-# TODO: renvoyer les chemins d'accès, paramètres, constants, etc. dans un fichier de config séparé (en .yml)
 path2param = Path(__file__).parent / "params.yml"
 
 print(f"Loading parameter file: {path2param.resolve()}")
@@ -73,7 +71,6 @@ colormap = cm.LinearColormap(["green", "yellow", "red", "purple"], vmin=0, vmax=
 
 
 # TODO: ajouter l'inférence et la détermination de rank_ground_truth, en faisant appel à un modèle pré-entraîné
-# TODO: ajouter la "Note" d'Alain comme option, ainsi que la fréquence, et proposer un indicateur synthétique. Une classe atypicité pourra être créée.
 @st.cache_data
 def compute_atypicity_from_metrics(filtered_data, data, method):
     """
@@ -108,7 +105,6 @@ def compute_atypicity_from_metrics(filtered_data, data, method):
     return metrics.compute_atypicity(filtered_data, data, method, species_column)
 
 
-# TODO: charger aussi une liste de milieux "villaret", à des fins d'annotations milieux
 # TODO: charger les annotations déjà effectuée en initialisant st.session_state.output_data
 @st.cache_data
 def load_data(path_nfaure, path_kohonen):
@@ -226,26 +222,12 @@ def load_data(path_nfaure, path_kohonen):
             print(f"Colonne '{col}' : {num_nan} valeurs NaN.")
     print("")
 
-
     # Calcul des scores d'atypicité
     data["Atypicité_NFaure"] = compute_atypicity_from_metrics(data, data, "Atypicité_NFaure")
     data["Atypicité_Kohonen"] = compute_atypicity_from_metrics(data, data, "Atypicité_Kohonen")
     data["Atypicité_Fréquence"] = compute_atypicity_from_metrics(data, data, "Atypicité_Fréquence")
     # data["Atypicité_Hybride"] = compute_atypicity_from_metrics(data, data, "Atypicité_Hybride")
-    
-    # # Par défaut pour la carte, on peut créer une colonne 'Atypicité' basée sur le filtre actif
-    # if "filtered_data" in st.session_state and st.session_state.filtered_data is not None:
-    #     method = st.session_state.filters["Méthode"]
-    #     if method == "rank_ground_truth":
-    #         data["Atypicité"] = data["Atypicité_NFaure"]
-    #     elif method == "kohonen":
-    #          data["Atypicité"] = data["Atypicité_Kohonen"]
-    #     elif method == "frequency":
-    #          data["Atypicité"] = data["Atypicité_Frequency"]
-    #     else:
-    #         st.error(f"Méthode '{method}' non implémentée pour la colonne 'Atypicité'.")
-    # else:
-    #     data["Atypicité"] = data["Atypicité_Frequency"] # valeur par défaut
+
 
     observateurs = list(data["PrenomNom"].unique())
 
@@ -381,16 +363,18 @@ def filter_data(data, filters):
             filtered_data = filtered_data.loc[[element in filters["PrenomNom"] for element in filtered_data["PrenomNom"]]] # on filtre par rapport à l'observateur
         if len(filters[species_column]) != 0: # si il y a un filtre sur l'espèce
             filtered_data = filtered_data.loc[[element in filters[species_column] for element in filtered_data[species_column]]] # on filtre par rapport à l'espèce
-        # TODO: ajouter vérification de l'existence de l'ID
         if filters["ID"]:
-            filtered_data = filtered_data.loc[filtered_data["ID"]==filters["ID"]]
+            if filters["ID"] in data["ID"]:
+                filtered_data = filtered_data.loc[filtered_data["ID"]==filters["ID"]]
+            else:
+                st.error("CIdentifiant inconnu")
         if filters["Debut"] > filters["Fin"] : # si le dates choisies ne sont pas dans le bon ordre
             st.error("Veuillez choisir une date de début antérieure à la date de fin.") # erreur affichée
         else :
             filtered_data = filtered_data.loc[pd.to_datetime(filtered_data["Date_Releve"],format='%Y-%m-%d').dt.date >= filters["Debut"]] # sinon, on garde uniquement les données ultérieures à la date de début choisie
             filtered_data = filtered_data.loc[pd.to_datetime(filtered_data["Date_Releve"],format='%Y-%m-%d').dt.date <= filters["Fin"]] # puis, on garde uniquement les données précédant la date de début choisie
         
-        # filtered_data["Atypicité"] = compute_atypicity_from_metrics(filtered_data, data, filters["Méthode"])
+
         filtered_data = filtered_data.loc[filtered_data[filters["Méthode"]]<filters["hi_Score"]]
         filtered_data = filtered_data.loc[filtered_data[filters["Méthode"]]>filters["lo_Score"]]
         filtered_data = filtered_data.sort_values(by=filters["Méthode"], ascending=False).head(int(filters['Top_atypicity']))
@@ -509,7 +493,6 @@ def make_map(df, colormap, toggle_clusters=False, toggle_dpt=False, annotated=[]
 
 
     return map_, group_1
-    # return st_folium(map_, width=width, height=height, key=key, on_change=callback)
 
 
 def update_id_obs(st_data, filtered_data, current, last, type_annotation):
@@ -688,17 +671,7 @@ def afficher_metadonnees(data, id_obs, output_data):
         
 
     # Use a single markdown with <br> to avoid extra vertical spacing between lines
-    st.markdown("<br>".join(lines), unsafe_allow_html=True)
-
-# def show_annotations():
-#     annotations_remarque = output_data.loc[mask_out, 'annotation_remarque'].dropna()
-#     annotation_remarque = annotations_remarque.iloc[-1] if not annotations_remarque.empty else None
-
-#     if annotation_espece and annotation_espece != row[species_column]:
-#         lines.append(f"**Remarque :** {row[species_column]} :green[→ {annotation_remarque}]")
-#     else:
-#         lines.append(f"**Remarque :** {row[species_column]} :green[aucune remarque]")
-    
+    st.markdown("<br>".join(lines), unsafe_allow_html=True)    
 
 @st.cache_data
 def afficher_stats_geo(data, id_obs, output_data):
@@ -724,7 +697,7 @@ def afficher_stats_geo(data, id_obs, output_data):
     lines = []
     lines.append(f"**ID** : {id_obs}")
     lines.append(f"**coordonnées** : ({row['Latitude']}, {row['Longitude']})")
-    # lines.append(f"**commune** : {'À implémenter'}")
+    # lines.append(f"**commune** : {'À implémenter'}") # TODO : ajouter code postal/commune
     
     # Use a single markdown with <br> to avoid extra vertical spacing between lines
     st.markdown("<br>".join(lines), unsafe_allow_html=True)
@@ -864,12 +837,6 @@ def _save_annotation(id_obs, validation_key, type_annotation):
                 row[annotation_col] = None
             if new_annotation is not None:
                 row.loc[:, annotation_col] = float(new_annotation[i].strip())
-            # row = row.assign(validation=validation_status)
-            
-            # st.session_state.output_data = pd.concat([
-            #     st.session_state.output_data,
-            #     row
-            # ], ignore_index=True).drop_duplicates(subset=['ID'], keep='last')
         
     else : 
         annotation_col = 'annotation_' + type_annotation
@@ -1098,7 +1065,6 @@ if __name__ == "__main__":
 
     ###################################################
     # Chargement des donnees
-    # msg = st.toast("Chargement des données...")
     data, observateurs, especes = load_data(DATA_PATH_NFAURE, DATA_PATH_KOHONEN)
     dict_milieux, milieu_pour_chaque_espece, especes_pour_chaque_milieu = load_Villaret(VILLARET_PATH)
     data_fact_abiotiques = load_data_fact_abiotiques(FACT_PATH)
@@ -1147,7 +1113,6 @@ if __name__ == "__main__":
             filters["Fin"] = st.date_input("Jusqu'au", value = "today", min_value="1990-01-01", max_value="today", format="YYYY-MM-DD")
             filters["lo_Score"], filters["hi_Score"] = st.select_slider("Atypicité", options=[i for i in np.arange(0, 10.5, 0.5)], value=(0,10))
             filters['Top_atypicity'] = st.slider('Filter les plus atypiques', min_value=5, max_value=100, value=20, step=5)
-            # st.markdown('''0 :green[----------]:yellow[----------]:orange[----------]:red[----------]:violet[----------] 10''') # légende
             filters["Méthode"] = st.radio("Méthode de calcul de l'atypicité :", ["Atypicité_NFaure", "Atypicité_Kohonen", "Atypicité_Fréquence"])
             
             
@@ -1157,11 +1122,6 @@ if __name__ == "__main__":
                     
                     filtered_data, st.session_state.filtered = filter_data(data, filters)
                     status.update(label='Données filtrées', state = "complete")
-
-                # with st.sidebar.status("Calcul de l'atypicité sur les données filtrées...") as status:
-                #     filtered_data["Atypicité"] = compute_atypicity_from_metrics(filtered_data, 
-                #                                                                     data, filters["Méthode"])
-                #     status.update(label='Atypicité calculée', state = "complete")
                     
                 st.session_state.filters = filters
                 st.session_state.id_obs = None
@@ -1246,7 +1206,7 @@ if __name__ == "__main__":
                             default_index, default_milieu = get_default_annotation(filtered_data, st.session_state.type_annotation, id_obs, list(dict_milieux.values()))
                             st.selectbox(f"Signaler un micro-milieu (Valeur initiale: {'default_milieu'})", np.sort(list(dict_milieux.values())), index=default_index, key=select_key)
                     
-                        case "Modifier la position":
+                        case "Modifier la position":  # TODO: La proposition des milieux peut être faite en fonction de l'espèce considérée (selon qu'elle est présente dans la liste d'espèce du dictionnaire ou non)
                             st.session_state.type_annotation = "coords"
                             select_key = f"select_coords_{st.session_state.id_obs}"
                             st.session_state.clicked = st_data1.get('last_clicked') if isinstance(st_data1, dict) else None
@@ -1284,11 +1244,6 @@ if __name__ == "__main__":
                                 st.rerun()
                             st.session_state.type_annotation = None
                     
-                    # TODO: ajouter une option d'annotation milieu/micromilieu, en faisant appel à la liste Villaret. 
-                    # La proposition des milieux peut être faite en fonction de l'espèce considérée (selon qu'elle est présente dans la liste d'espèce du dictionnaire ou non)
-
-                    # TODO: ajouter une option de modification de la position, en utilisant un pointage sur la carte interactive
-
                     # validation radio should also be unique per observation so it resets on id change
                     st.radio("Validation de la donnée:", ['Je confirme', 'Donnée douteuse', "Donnée fausse"], key=validation_key)
 
@@ -1350,6 +1305,7 @@ if __name__ == "__main__":
                 st_data2 = st_folium(map2, key='map2', 
                                      width=__width__, height=__height__)
                     
+            st.dataframe(data.loc[data[species_column]==row[species_column]])
             ###################################################
             # Colonne pour les données de fréquence et d'atypicité       
             with col_atyp :
@@ -1377,7 +1333,6 @@ if __name__ == "__main__":
                 ax.hist(data.loc[data[species_column]==row[species_column]][st.session_state.filters["Méthode"]],
                         bins=10, color="blue")
                 plt.axvline(x=row[st.session_state.filters["Méthode"]], color="red", label=f"Atypicité(observation) = {round(row[st.session_state.filters['Méthode']], 3)}")
-                #TODO : fix first loading
                 
                 plt.xlim((0,10))
                 plt.xlabel("Atypicité")
@@ -1471,6 +1426,4 @@ if __name__ == "__main__":
             st.dataframe(filtered_data.head(100), 
                         hide_index=True,
                         column_order=("ID", species_column, "Nom_Valide", "Latitude", "Longitude", "PrenomNom", "NbObs", "Groupe", "Atypicité_NFaure", "Atypicité_Kohonen", "Atypicité_Fréquence", "rank_ground_truth", "RangEspUC", "Code_Releve", "Date_Releve", "NbObs_Releve", "annotation_espece", "annotation_latitude", "annotation_longitude", "annotation_micro", "annotation_remarque", "validation"))
-# TODO : ajouter code postal/commune
-# TODO : superposition cartes
                 
