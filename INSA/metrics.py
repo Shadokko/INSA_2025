@@ -29,9 +29,9 @@ def indice_jaccard(set1, set2):
         indice de Jaccard
     """
     cardinal_union = len(set1|set2)
-    cardinal_inter = len(set1 & set2)
-    indice = cardinal_inter/cardinal_union
-    return cardinal_inter, indice
+    cardinal_intersection = len(set1 & set2)
+    indice = cardinal_intersection/cardinal_union
+    return cardinal_intersection, indice
 
 def compute_mean_atypicity_per_releve(data, atypicity_column):
     """
@@ -39,12 +39,15 @@ def compute_mean_atypicity_per_releve(data, atypicity_column):
     
     Parameters
     ----------
-    data : pd.DataFrame
+    data : pandas.DataFrame
         DataFrame contenant au moins les colonnes 'Code_Releve' et la colonne d'atypicité spécifiée
+    
+    atypicity_column : str
+        nom de la colonne contenant les valeurs d'atypicité
     
     Returns
     -------
-    pd.Series
+    pandas.Series
         Moyenne de l'atypicité pour chaque 'Code_Releve'
     """
     return data[["Code_Releve", atypicity_column]].groupby(["Code_Releve"]).mean()[atypicity_column].dropna()
@@ -52,12 +55,24 @@ def compute_mean_atypicity_per_releve(data, atypicity_column):
 
 def compute_proportion_lower_atypicity(df_data, species_column, species, atypicity, atypicity_column):
     """
-    Calcule le pourcentage des
+    Calcule le pourcentage des observations de l'espece 'species' dont l'atypicité est strictement inférieure à 'atypicity'
     
     Parameters
     ----------
-    data : pd.DataFrame
-        DataFrame contenant au moins les colonnes 'Code_Releve' et la colonne d'atypicité spécifiée
+    df_data : pandas.DataFrame
+        DataFrame contenant au moins les colonnes 'species_column', 'atypicity_column'
+        
+    species_column : str
+        nom de la colonne contenant les noms d'espèce
+    
+    species : str
+        nom de l'espèce considérée
+    
+    atypicity : float
+        valeur de l'atypicité seuil
+        
+    atypicity_column : str
+        nom de la colonne contenant les valeurs d'atypicité
     
     Returns
     -------
@@ -65,7 +80,7 @@ def compute_proportion_lower_atypicity(df_data, species_column, species, atypici
         Pourcentage des observations de l'espèce qui ont une atypicité inférieure à l'observation, arrondi aux dixièmes
     """
     
-    df_species = df_data.loc[df_data[species_column]==species, [species_column, atypicity_column]].dropna()
+    df_species = df_data.loc[df_data[species_column]==species, [species_column, atypicity_column]].dropna() #dataframe contenant uniquement les observations de l'espèce 'species'
     sum_obs_with_lower_value = sum(df_species[atypicity_column] < atypicity) 
     percentage = round(100*sum_obs_with_lower_value/(len(df_species)-1), 1)
     return percentage
@@ -86,7 +101,8 @@ def compute_atypicity(filtered_data, data, method, species_column):
     data : pandas.DataFrame
         DataFrame complet utilisé pour déterminer l'échelle (min/max).
     method : str
-        Méthode de calcul. Actuellement pris en charge : ``"rank_ground_truth"``.
+        Méthode de calcul. Actuellement pris en charge : "Atypicité_NFaure", "Atypicité_Kohonen",
+        "Atypicité_Fréquence" ou "Atypicité_Hybride".
     species_column : str
         Nom de la colonne contenant les noms d'espèces dans les DataFrames.
     
@@ -184,14 +200,14 @@ def compute_frequency(data, species_column):
 
     Parameters
     ----------
-    data : pd.DataFrame
+    data : pandas.DataFrame
         DataFrame contenant au moins les colonnes ["ID", species_column, "NbObs"].
     species_column : str
         Nom de la colonne contenant les noms d'espèces dans le DataFrame.
 
     Returns
     -------
-    pd.Series
+    pandas.Series
         Série pandas contenant la fréquence d'apparition de l'espèce pour chaque observation
         du dataframe.
     """

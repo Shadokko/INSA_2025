@@ -34,6 +34,7 @@ Ajout de nouvelles options d'annotation : position et remarque
 Ajout du chargement des annotations des sessions précedentes et séparation de l'output en 2 fichiers
 Affichage des observations à leurs coordonnées post-annotation si disponible
 Correction du calcul du centre de la carte, pour prendre en compte les nouvelles positions
+Ajout d'un cas de figure pour l'annotation : validation sans aucune modification
 
 En cours :
 Lier le tableau de donnees affiche a la carte et aux metadonnees affichees

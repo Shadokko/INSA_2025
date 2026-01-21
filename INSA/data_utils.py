@@ -5,14 +5,14 @@ fonctions accompagnant app_annotation
 
 import pandas as pd
 
-def date_francaise(date): #TODO : foormat date docstring
+def date_francaise(date):
     """
     Convertit une date en format lisible selon les conventions françaises.
     
     Parameters
     ----------
     date : str
-        Date au format "" 
+        Date au format "AAAA-MM-JJ" 
     
     Returns
     -------
@@ -35,18 +35,18 @@ def format_species(espece):
     """
     Normalise le format des noms d’espèces.
     Retire les suffixes des noms d'espèces (année de découverte et découvreur)
-    Format obtenu : "Genre espèce" ou "Genre espèce subsp. sous-espèce" ou"croisée1 x croisée2"
+    Format obtenu : "Genre espèce" ou "Genre espèce subsp. sous-espèce" ou "croisée1 x croisée2"
     Cette fonction assure une cohérence d’écriture pour les comparaisons
     et les jointures entre différentes sources de données.
     
     Parameters
     ----------
-    espece : string
+    espece : str
         nom d'une espèce
         
     Returns
     -------
-    formatted_esp : string
+    formatted_esp : str
         nom de l'espèce au bon format
         
     """

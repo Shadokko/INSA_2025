@@ -66,7 +66,7 @@ colormap = cm.LinearColormap(["green", "yellow", "red", "purple"], vmin=0, vmax=
 
 
 # TODO: ajouter l'inférence et la détermination de rank_ground_truth, en faisant appel à un modèle pré-entraîné
-# TODO: ajouter la "Note" d'Alain comme option, ainsi que la fréquence, et proposer un indicateur synthétique. Une classe atypicité pourra être créée.
+# TODO: une classe atypicité pourra être créée
 @st.cache_data
 def compute_atypicity_from_metrics(filtered_data, data, method):
     """
@@ -91,13 +91,15 @@ def compute_atypicity_from_metrics(filtered_data, data, method):
     Returns
     -------
     numpy.ndarray
-        Tableau 1D contenant le score d'atypicité pour chaque ligne de 
-        ``filtered_data`` (valeurs entre 0 et 10).
+        Tableau 1D (ou Series convertible) contenant le score d'atypicité pour
+        chaque ligne de ``filtered_data`` (valeurs entre 0 et 10).
 
     Notes
     -----
     Si la plage (max-min) vaut 0, la fonction renvoie un vecteur de zéros 
     pour éviter une division par zéro.
+    Si l'observation n'a ni rank_ground_truth ni RangEspUC, l'atypicité par défaut
+    est fixée à 10 quelle que soit la méthode.
     """
     return metrics.compute_atypicity(filtered_data, data, method, species_column)
 
@@ -256,7 +258,7 @@ def load_Villaret(filename):
 
     Parameters
     ----------
-    filename : string
+    filename : pathlib.Path
         chemin vers les données
         
     Returns
@@ -270,16 +272,18 @@ def load_Villaret(filename):
     especes_pour_chaque_milieu : dict
         dictionnaire associant à chaque milieu la liste des espèces qui l'habitent
     """
-
+    # Lecture des fichiers
     df_noms_milieux = pd.read_excel(filename, skiprows=0, header=None, sheet_name="Villaret - fiche>nom", index_col=0, engine="openpyxl").rename(columns={1: "nom"})
     df_milieu_pour_chaque_espece = pd.read_excel(filename, skiprows=3, header=None, sheet_name="Villaret - espèce>fiche", index_col=0, engine="openpyxl").drop([1,2,3], axis=1)
     df_especes_pour_chaque_milieu = pd.read_excel(filename, skiprows=0, header=0, sheet_name="Villaret - fiche>espèces", engine="openpyxl")
+    
+    # Changement du nom de la colonne 'Nom flore'
     if "Nom flore" in df_milieu_pour_chaque_espece.columns:
         df_milieu_pour_chaque_espece = df_milieu_pour_chaque_espece.rename(columns={"Nom flore": species_column})
 
     if "Nom flore" in df_especes_pour_chaque_milieu.columns:
         df_especes_pour_chaque_milieu = df_especes_pour_chaque_milieu.rename(columns={"Nom flore": species_column}) 
-    
+
     dict_milieux = dict()
     for i in range(len(df_noms_milieux)):
         dict_milieux[df_noms_milieux.index[i]] = df_noms_milieux.iat[i, 0]
@@ -304,11 +308,14 @@ def load_annotations(filename, cols, collapsed):
     
     Parameters
     ----------
-    filename : string
+    filename : pathlib.Path
         chemin vers les données.
         
     cols : pandas.Series
         colonnes qui devront être présentes si le dataframe d'annotations doit être créé.
+        
+    collapsed : boolean
+        si True, le dataframe de sortie ne contiendra qu'une seule ligne par observation au maximum.
         
     Returns
     -------
@@ -333,6 +340,11 @@ def load_data_fact_abiotiques(filename):
     
     Ces données peuvent être utilisées pour enrichir l’interprétation écologique
     des observations et des micro-milieux potentiels.
+    
+    Parameters
+    ----------
+    filename : pathlib.Path
+        chemin vers les données.
     
     Returns
     -------
@@ -385,8 +397,7 @@ def filter_data(data, filters):
             filtered_data = filtered_data.loc[[element in filters["PrenomNom"] for element in filtered_data["PrenomNom"]]] # on filtre par rapport à l'observateur
         if len(filters[species_column]) != 0: # si il y a un filtre sur l'espèce
             filtered_data = filtered_data.loc[[element in filters[species_column] for element in filtered_data[species_column]]] # on filtre par rapport à l'espèce
-        # TODO: ajouter vérification de l'existence de l'ID
-        if filters["ID"]:
+        if filters["ID"] and filters["ID"] in list(data["ID"]):
             filtered_data = filtered_data.loc[filtered_data["ID"]==filters["ID"]]
         if filters["Debut"] > filters["Fin"] : # si le dates choisies ne sont pas dans le bon ordre
             st.error("Veuillez choisir une date de début antérieure à la date de fin.") # erreur affichée
@@ -394,7 +405,6 @@ def filter_data(data, filters):
             filtered_data = filtered_data.loc[pd.to_datetime(filtered_data["Date_Releve"],format='%Y-%m-%d').dt.date >= filters["Debut"]] # sinon, on garde uniquement les données ultérieures à la date de début choisie
             filtered_data = filtered_data.loc[pd.to_datetime(filtered_data["Date_Releve"],format='%Y-%m-%d').dt.date <= filters["Fin"]] # puis, on garde uniquement les données précédant la date de début choisie
         
-        # filtered_data["Atypicité"] = compute_atypicity_from_metrics(filtered_data, data, filters["Méthode"])
         filtered_data = filtered_data.loc[filtered_data[filters["Méthode"]]<=filters["hi_Score"]]
         filtered_data = filtered_data.loc[filtered_data[filters["Méthode"]]>=filters["lo_Score"]]
         filtered_data = filtered_data.sort_values(by=filters["Méthode"], ascending=False).head(int(filters['Top_atypicity']))
@@ -414,13 +424,22 @@ def compute_center(data):
     -------
     center : tuple
         coordonnées (latitude, longitude) du centre géographique des données
+        
+    Notes
+    -------
+    Si la position d'un point a été annotée, celle ci sera prise en compte dans les calculs de min et max. 
+    Cependant, les anciennes coordonnées rentreront toujours dans le calcul, ce qui pourra conduire à un affichage d'une zone trop étendue.
     """  
     
-    mask = st.session_state.output_data['ID'].isin(data["ID"])
-    lat_max = max(st.session_state.output_data.loc[mask, 'annotation_latitude'].max(), data["Latitude"].max())
-    lat_min = min(st.session_state.output_data.loc[mask, 'annotation_latitude'].min(), data["Latitude"].min())
-    lon_max = max(st.session_state.output_data.loc[mask, 'annotation_longitude'].max(), data["Longitude"].max())
-    lon_min = min(st.session_state.output_data.loc[mask, 'annotation_longitude'].min(), data["Longitude"].min())
+    mask = st.session_state.output_data['ID'].isin(data["ID"]) #empty
+    
+    data_lat = st.session_state.output_data.loc[mask, 'annotation_latitude']
+    data_lon = st.session_state.output_data.loc[mask, 'annotation_longitude']
+    
+    lat_max = max(data_lat.max(), data["Latitude"].max()) if not data_lat.empty else data["Latitude"].max()
+    lat_min = min(data_lat.min(), data["Latitude"].min()) if not data_lat.empty else data["Latitude"].min()
+    lon_max = max(data_lon.max(), data["Longitude"].max()) if not data_lon.empty else data["Longitude"].max()
+    lon_min = min(data_lon.min(), data["Longitude"].min()) if not data_lon.empty else data["Longitude"].min()
     
     lat_center = float(lat_max + lat_min)/2
     lon_center = float(lon_max + lon_min)/2
@@ -447,6 +466,10 @@ def make_map(df, colormap, toggle_clusters=False, toggle_dpt=False, annotated=[]
     tailles différentes selon qu'une observation est dans la liste
     ``annotated`` (petit) ou qu'elle correspond à l'identifiant sélectionné
     stocké dans ``st.session_state.id_obs`` (plus grand).
+    La couleur des marqueur correspond à leur atypicité, allant du vert (valeur faible) 
+    au violet (valeur élevée).
+    La position des marqueurs sera en priorité celle tirée des annotations les plus récentes,
+    sinon la position non-annotée sera utilisée.
 
     Paramètres
     ----------
@@ -507,11 +530,11 @@ def make_map(df, colormap, toggle_clusters=False, toggle_dpt=False, annotated=[]
         else: 
             radius = 7
 
+        # Si l'atypicité ne peut pas être calculée avec la méthode choisie, ie si atypicité=nan, alors le marqueur sera blanc
         if np.isnan(row[st.session_state.filters["Méthode"]]):
             fill_c = "white"
         else:
             fill_c = colormap(float(row[st.session_state.filters["Méthode"]]))
-
 
         folium.CircleMarker(location=position,
                             radius=radius,
@@ -528,7 +551,6 @@ def make_map(df, colormap, toggle_clusters=False, toggle_dpt=False, annotated=[]
         group_1.add_to(marker_cluster)
     else :
         group_1.add_to(map_)
-
 
     return map_, group_1
 
@@ -552,11 +574,21 @@ def update_id_obs(st_data, filtered_data, current, last, type_annotation):
         ID actuellement sélectionné (format: "Code_Releve_Code_Espece").
     last : str | None
         ID précédemment sélectionné (utilisé pour historique/back-navigation).
+    type_annotation : str | None
+        type d'annotation actuellement en cours
+    
 
     Returns
     -------
     tuple (new_current, new_last)
         Tuples d'IDs mis à jour. Si aucun changement détecté, retourne (current, last).
+        
+    Notes
+    -----
+    Si l'annotation des coordonnées est en cours, la sélection des observations par 
+    recherche du plus proche est désactivée pour ne pas changer d'observation en même
+    temps que l'on choisit la nouvelle position de l'observation
+    
     """
     new = None
     popup = st_data.get('last_object_clicked_popup') if isinstance(st_data, dict) else None
@@ -708,7 +740,7 @@ def afficher_metadonnees(data, id_obs, output_data):
     st.markdown("<br>".join(lines), unsafe_allow_html=True)    
 
 @st.cache_data
-def afficher_stats_geo(data, id_obs, output_data):
+def afficher_stats_geo(data, id_obs):
     """
     Affiche, via Streamlit, les données géographiques associées à une observation, notamment ses coordonnées.
 
@@ -718,9 +750,6 @@ def afficher_stats_geo(data, id_obs, output_data):
         DataFrame contenant les observations (index attendu égal à l'ID).
     id_obs : int
         Identifiant de l'observation à afficher.
-    output_data : pandas.DataFrame
-        Table des annotations sauvegardées (permet d'afficher le statut de
-        validation et les corrections déjà enregistrées).
 
     Notes
     -----
@@ -738,7 +767,7 @@ def afficher_stats_geo(data, id_obs, output_data):
     
     
 @st.cache_data
-def afficher_stats_atypicite(data, id_obs, output_data, method):
+def afficher_stats_atypicite(data, id_obs, method):
     """
     Affiche les informations de fréquence et d'atpicité associées à une observation et à son espèce.
 
@@ -751,9 +780,6 @@ def afficher_stats_atypicite(data, id_obs, output_data, method):
         DataFrame contenant les observations (index attendu égal à l'ID).
     id_obs : int
         Identifiant de l'observation à afficher.
-    output_data : pandas.DataFrame
-        Table des annotations sauvegardées (permet d'afficher le statut de
-        validation et les corrections déjà enregistrées).
 
     Notes
     -----
@@ -797,10 +823,11 @@ def afficher_stats_releve(data, id_obs):
 
 def save_annotations(data, export_path):
     """
-    Exporte la table d'annotations vers un fichier CSV horodaté.
-
+    Exporte les annotations de la session vers un fichier CSV horodaté.
     Le fichier de sortie est créé à partir de ``export_path`` en ajoutant
     un suffixe de date/heure pour éviter d'écraser les exports précédents.
+    
+    Rajoute les annotations de la session au fichier contenant toutes les annotations.
 
     Parameters
     ----------
@@ -812,12 +839,12 @@ def save_annotations(data, export_path):
     export_path_current_session = export_path.parent / (export_path.stem + time.asctime().replace(" ", "_").replace(":", "-") + export_path.suffix)
 
     mask_current_session = st.session_state.output_data["ID"].isin(st.session_state.current_session_annotations)
-    if mask_current_session.any():
+    if mask_current_session.any(): #si il y a de nouvelles annotations
         new_output = data.loc[mask_current_session]
         new_output.to_csv(export_path_current_session, sep=";", index=False)
         st.success(f"Données de la session exportées vers {export_path_current_session.resolve()}")
         
-        last_output = load_annotations(export_path, list(data.columns), collapsed=False)
+        last_output = load_annotations(export_path, list(data.columns), collapsed=False) #collapsed = False pour ne pas overwrite l'historique des annotations précedentes
         global_output = pd.concat([
             last_output,
             new_output
@@ -842,6 +869,8 @@ def _save_annotation(id_obs, validation_key, type_annotation):
     validation_key : str
         Clé utilisée dans ``st.session_state`` pour lire l'état du widget
         de validation (par ex. "validation_<id>").
+    type_annotation : str
+        type d'annotation qui est en cours, parmi : ["espece", "coords", "micro", "remarque"]
 
     Notes
     -----
@@ -850,10 +879,6 @@ def _save_annotation(id_obs, validation_key, type_annotation):
       lors du chargement initial).
     - Si ``st.session_state.output_data`` n'existe pas encore, elle l'initialise.
     """
-    if type_annotation is None : 
-        st.error("Veuilez choisir une option d'annotation")
-        return
-
     if id_obs is None:
         st.error("Aucune observation sélectionnée — impossible de sauvegarder.")
         return
@@ -861,45 +886,50 @@ def _save_annotation(id_obs, validation_key, type_annotation):
     if 'output_data' not in st.session_state:
         st.session_state.output_data = load_annotations(export_path, cols=list(data.columns), collapsed=True)
 
-    # read the current validation status from session state using the provided key
-    validation_status = st.session_state.get(validation_key, None)
-
-    # Get the currently selected annotation for this observation (if any)
-    select_key = f"select_{type_annotation}_{id_obs}"
-    new_annotation = st.session_state.get(select_key, None)
-
     if id_obs in list(st.session_state.output_data["ID"]):
         row = st.session_state.output_data.loc[st.session_state.output_data["ID"]==id_obs].copy()
     else:
         row = data.loc[data["ID"]==id_obs].copy()
+
+        row["Date_annotation"] = time.asctime()
+
+    # read the current validation status from session state using the provided key
+    validation_status = st.session_state.get(validation_key, None)
     
-    if type_annotation == "coords":
-        new_annotation = st.session_state.last_clicked
-        cols = ['latitude', 'longitude']
-
-        for i in range(2):
-            annotation_col = 'annotation_' + cols[i]
-
+    # Si type_annotation vaut None, on considère que l'observation est validée comme telle, ou que le 
+    
+    if type_annotation is not None :
+        # Get the currently selected annotation for this observation (if any)
+        select_key = f"select_{type_annotation}_{id_obs}"
+        new_annotation = st.session_state.get(select_key, None)
+        
+        if type_annotation == "coords":
+            new_annotation = st.session_state.last_clicked #on récupère les coordonnées du dernier point cliqué sur la carte
+            cols = ['latitude', 'longitude']
+    
+            for i in range(2):
+                annotation_col = 'annotation_' + cols[i]
+    
+                # ensure annotation_col column exists
+                if annotation_col not in row.columns:
+                    row[annotation_col] = None
+                if new_annotation is not None:
+                    row.loc[:, annotation_col] = new_annotation[i] #on remplit les colonnes 'annotation_latitude' et 'annotation_longitude'
+        else : 
+            annotation_col = 'annotation_' + type_annotation
+    
             # ensure annotation_col column exists
             if annotation_col not in row.columns:
                 row[annotation_col] = None
             if new_annotation is not None:
-                row.loc[:, annotation_col] = new_annotation[i]
-    else : 
-        annotation_col = 'annotation_' + type_annotation
-
-        # ensure annotation_col column exists
-        if annotation_col not in row.columns:
-            row[annotation_col] = None
-        if new_annotation is not None:
-            row.loc[:, annotation_col] = new_annotation
-
-    row["Date_annotation"] = time.asctime()
-        
+                row.loc[:, annotation_col] = new_annotation
+                
+    elif validation_status in ['Donnée douteuse', "Donnée fausse"]:
+        st.error("Si cette observation vous paraît douteuse ou fausse, merci de l'annoter ou de laisser un autre utilisateur l'examiner")
+        return
+    
     row = row.assign(validation=validation_status)
-
-    # if id_obs in  st.session_state.current_session_annotations: 
-        
+    
     st.session_state.output_data = pd.concat([
         st.session_state.output_data,
         row
@@ -965,7 +995,7 @@ def get_set_milieu(set_releve, dict_m_pour_e):
     for esp in set_releve:
         if esp in dict_m_pour_e.keys():
             for m in dict_m_pour_e[esp]:
-                if len(m)==5: #TODO : fix F090
+                if len(m)==5: #TODO : fix F090, code présent dans le fichier des données de Villareet, mais ne correspondant à aucun nom de milieu
                     set_milieu.add(m) 
     return set_milieu
 
@@ -1046,6 +1076,9 @@ def get_intra_inter_atypicity(df_data, Code_Releve, method):
         
     Code_Releve : str
         Identifiant du relevé.
+        
+    method : str
+        Colonne à utiliser pour l'atypicité, selon la méthode choisie
     
     Returns
     -------
@@ -1064,6 +1097,23 @@ def get_intra_inter_atypicity(df_data, Code_Releve, method):
 
 
 def check_filtered_and_clicked(bool_filtered, id_obs):
+    """
+    Vérifie que les données ont été filtrées et qu'une observation a été selectionnée.
+    Si une de ces deux conditions n'est pas remplie, affiche un message d'erreur
+    
+    Parameters
+    ----------
+    bool_filtered : boolean
+        True si les données ont été filtrées
+        
+    id_obs : str | None
+        Identifiant de l'observation, None si aucune n'a été selectionnée
+    
+    Returns
+    -------
+        Boolean
+        
+    """
     if not bool_filtered:
         st.write("Veuillez filtrer les données")
         return False
@@ -1077,8 +1127,31 @@ def check_filtered_and_clicked(bool_filtered, id_obs):
     
 def get_default_annotation(filtered_data, type_annotation, id_obs, list_options):
     """
-    type_annotation parmi ["espece", "longitude", "latitude", "micro", "remarque"]
+    Récupère l'espèce ou le milieu à afficher par défaut dans le choix des annotations.
+    Utilise en priorité la dernière annotation de l'observation.
     
+    Parameters
+    ----------
+    filtered_data : pandas.DataFrame
+        DataFrame contenant l'ensemble des données
+        
+    type_annotation : str
+        type d'annotation qui est en cours, parmi : ["espece", "coords", "micro", "remarque"]
+        
+    id_obs : str | None
+        Identifiant de l'observation, None si aucune n'a été selectionnée
+        
+    list_options : list
+        Liste des options parmi lesquelles peut se trouver la valeur par défaut
+    
+    Returns
+    -------
+    default_index : int | None
+        index de la valeur par défaut dans list_options
+        
+    default_annotation : str | None
+        valeur par défaut de l'espèce ou du milieu
+        
     """
     col_annotation = "annotation_" + type_annotation
     
@@ -1088,18 +1161,18 @@ def get_default_annotation(filtered_data, type_annotation, id_obs, list_options)
         return
         
     # Prefer previously saved annotation (in output_data) if present, otherwise use recorded species
-    default_espece = None
+    default_annotation = filtered_data.loc[mask, species_column].iloc[0] if type_annotation=="espece" else None
     if hasattr(st.session_state, "output_data") and not st.session_state.output_data.empty:
         prev = st.session_state.output_data.loc[st.session_state.output_data['ID']==id_obs, col_annotation]
         if not prev.empty and pd.notna(prev.iloc[-1]):
-            default_espece = prev.iloc[-1]
+            default_annotation = prev.iloc[-1]
 
-    if default_espece in list_options:
-        default_index = list_options.index(default_espece)
+    if default_annotation in list_options:
+        default_index = list_options.index(default_annotation)
     else:
         default_index = 0
         
-    return default_index, default_espece
+    return default_index, default_annotation
 
 if __name__ == "__main__":
 
@@ -1114,7 +1187,6 @@ if __name__ == "__main__":
     if "output_data" not in st.session_state:
         st.session_state.output_data = load_annotations(export_path, cols=list(data.columns), collapsed=True)
         st.session_state.current_session_annotations = list()
-
 
     if "map_center" not in st.session_state:
         st.session_state["map_center"] = __GRENOBLE__
@@ -1137,7 +1209,7 @@ if __name__ == "__main__":
     else:
         filtered_data = None
         
-    if "last_clicked" not in st.session_state : 
+    if "type_annotation" not in st.session_state : 
         st.session_state.last_clicked = None
         st.session_state.type_annotation = None
 
@@ -1213,6 +1285,7 @@ if __name__ == "__main__":
                                 toggle_clusters=clusters, 
                                 toggle_dpt=st.session_state.dpt)
 
+                # Affichage du marqueur aidant à l'annotation de la position
                 if st.session_state.last_clicked is not None:
                     folium.Marker(
                                 location=st.session_state.last_clicked,
@@ -1313,6 +1386,8 @@ if __name__ == "__main__":
                             st.session_state.output_data)
         
         
+        ###################################################
+        # Affichage de toutes les annotations sous forme de tableau
         if len(st.session_state.output_data)!=0:
             mask_current_session = st.session_state.output_data["ID"].isin(st.session_state.current_session_annotations)
             if mask_current_session.any():
@@ -1348,8 +1423,7 @@ if __name__ == "__main__":
             with col_geo :
                 st.subheader("Données spatiales")
                 afficher_stats_geo(filtered_data, 
-                            id_obs, 
-                            st.session_state.output_data)
+                            id_obs)
                 
 
                 st.text(f"Carte des observations de {row[species_column]} :",
@@ -1369,8 +1443,7 @@ if __name__ == "__main__":
             with col_atyp :
                 st.subheader("Données de fréquence")
                 afficher_stats_atypicite(data, 
-                            id_obs, 
-                            st.session_state.output_data,
+                            id_obs,
                             st.session_state.filters['Méthode'])
                 
                 proportion_lower_atypicity = metrics.compute_proportion_lower_atypicity(data, 
