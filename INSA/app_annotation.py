@@ -1,7 +1,6 @@
 from pydoc import doc
 import streamlit as st
 import folium
-from folium.plugins import Draw
 from streamlit_folium import st_folium
 import pandas as pd
 import os
@@ -33,12 +32,11 @@ Ce module fournit :
 
 st.set_page_config(layout="wide")
 
-# TODO: renvoyer les chemins d'accès, paramètres, constants, etc. dans un fichier de config séparé (en .yml)
 path2param = Path(__file__).parent / "params.yml"
 
 print(f"Loading parameter file: {path2param.resolve()}")
 yaml=YAML(typ='safe')   # default, if not specfied, is 'rt' (round-trip)
-# TODO : fonction cachée
+
 params = yaml.load(path2param)
 DATA_PATH_NFAURE = params['DATA_PATH_NFAURE']
 print(f"N. Faure's data path: {Path(DATA_PATH_NFAURE).resolve()}\n")
@@ -62,11 +60,6 @@ ISERE = params['ISERE']
 __width__ = params['width']
 __height__ = params['height']
 species_column = params['species_column']
-
-
-# DATA_PATH_NFAURE = "../../result_export.csv"
-# DATA_PATH_KOHONEN = "experiments/kohonen_results.csv"
-
 
 __GRENOBLE__ = (45.0106, 9.4330)
 colormap = cm.LinearColormap(["green", "yellow", "red", "purple"], vmin=0, vmax=10, caption="échelle d'atypicité")
@@ -109,7 +102,6 @@ def compute_atypicity_from_metrics(filtered_data, data, method):
     return metrics.compute_atypicity(filtered_data, data, method, species_column)
 
 
-# TODO: charger aussi une liste de milieux "villaret", à des fins d'annotations milieux
 # TODO: charger les annotations déjà effectuée en initialisant st.session_state.output_data
 @st.cache_data
 def load_data(path_nfaure, path_kohonen):
@@ -237,20 +229,6 @@ def load_data(path_nfaure, path_kohonen):
     data["Atypicité_Fréquence"] = compute_atypicity_from_metrics(data, data, "Atypicité_Fréquence")
     # Hybride : par défaut 50/50
     data["Atypicité_Hybride"] = 0.5 * data["Atypicité_NFaure"] + 0.5 * data["Atypicité_Kohonen"]
-    
-    # # Par défaut pour la carte, on peut créer une colonne 'Atypicité' basée sur le filtre actif
-    # if "filtered_data" in st.session_state and st.session_state.filtered_data is not None:
-    #     method = st.session_state.filters["Méthode"]
-    #     if method == "rank_ground_truth":
-    #         data["Atypicité"] = data["Atypicité_NFaure"]
-    #     elif method == "kohonen":
-    #          data["Atypicité"] = data["Atypicité_Kohonen"]
-    #     elif method == "frequency":
-    #          data["Atypicité"] = data["Atypicité_Frequency"]
-    #     else:
-    #         st.error(f"Méthode '{method}' non implémentée pour la colonne 'Atypicité'.")
-    # else:
-    #     data["Atypicité"] = data["Atypicité_Frequency"] # valeur par défaut
 
     observateurs = list(data["PrenomNom"].unique())
 
@@ -513,7 +491,6 @@ def make_map(df, colormap, toggle_clusters=False, toggle_dpt=False, annotated=[]
 
 
     return map_, group_1
-    # return st_folium(map_, width=width, height=height, key=key, on_change=callback)
 
 
 def update_id_obs(st_data, filtered_data, current, last, type_annotation):
@@ -541,10 +518,6 @@ def update_id_obs(st_data, filtered_data, current, last, type_annotation):
     tuple (new_current, new_last)
         Tuples d'IDs mis à jour. Si aucun changement détecté, retourne (current, last).
     """
-
-
-
-
     new = None
     popup = st_data.get('last_object_clicked_popup') if isinstance(st_data, dict) else None
     clicked = st_data.get('last_object_clicked') if isinstance(st_data, dict) else None
@@ -692,18 +665,7 @@ def afficher_metadonnees(data, id_obs, output_data):
 
 
     # Use a single markdown with <br> to avoid extra vertical spacing between lines
-    st.markdown("<br>".join(lines), unsafe_allow_html=True)
-
-# def show_annotations():
-#     annotations_remarque = output_data.loc[mask_out, 'annotation_remarque'].dropna()
-#     annotation_remarque = annotations_remarque.iloc[-1] if not annotations_remarque.empty else None
-
-#     if annotation_espece and annotation_espece != row[species_column]:
-#         lines.append(f"**Remarque :** {row[species_column]} :green[→ {annotation_remarque}]")
-#     else:
-#         lines.append(f"**Remarque :** {row[species_column]} :green[aucune remarque]")
-
-    
+    st.markdown("<br>".join(lines), unsafe_allow_html=True)    
 
 @st.cache_data
 def afficher_stats_geo(data, id_obs, output_data):
@@ -729,7 +691,7 @@ def afficher_stats_geo(data, id_obs, output_data):
     lines = []
     lines.append(f"**ID** : {id_obs}")
     lines.append(f"**coordonnées** : ({row['Latitude']}, {row['Longitude']})")
-    # lines.append(f"**commune** : {'À implémenter'}")
+    # lines.append(f"**commune** : {'À implémenter'}") # TODO : ajouter code postal/commune
     
     # Use a single markdown with <br> to avoid extra vertical spacing between lines
     st.markdown("<br>".join(lines), unsafe_allow_html=True)
@@ -761,7 +723,7 @@ def afficher_stats_atypicite(data, id_obs, output_data, method):
     
     lines = []
     lines.append(f"**spécimens observés** : {int(row['NbObs'])}")
-    # lines.append(f"**fréquence de l'espèce** : {float(row['Frequence_espece'][1:-1:])}")
+    # lines.append(f"**fréquence de l'espèce** : {float(row['Frequence'][1:-1:])}") #TODO
     lines.append(f"**atypicité** : {round(row[method], 3)}")
     
     # Use a single markdown with <br> to avoid extra vertical spacing between lines
@@ -869,13 +831,6 @@ def _save_annotation(id_obs, validation_key, type_annotation):
                 row[annotation_col] = None
             if new_annotation is not None:
                 row.loc[:, annotation_col] = float(new_annotation[i].strip())
-            # row = row.assign(validation=validation_status)
-
-            # st.session_state.output_data = pd.concat([
-            #     st.session_state.output_data,
-            #     row
-            # ], ignore_index=True).drop_duplicates(subset=['ID'], keep='last')
-
     else : 
         annotation_col = 'annotation_' + type_annotation
 
@@ -1097,49 +1052,12 @@ def get_default_annotation(filtered_data, type_annotation, id_obs, list_options)
         
     return default_index, default_espece
 
-
-def get_default_annotation(filtered_data, type_annotation, id_obs, list_options):
-    """
-    type_annotation parmi ["espece", "longitude", "latitude", "micro", "remarque"]
-    
-    """
-    col_annotation = "annotation_" + type_annotation
-
-    mask = filtered_data['ID'] == id_obs
-    if not mask.any():
-        st.error(f"ID inconnu dans les données filtrées : {id_obs}")
-        return
-    else :
-        row = filtered_data.loc[mask].iloc[0]
-
-    # Prefer previously saved annotation (in output_data) if present, otherwise use recorded species
-    default_espece = None
-    if hasattr(st.session_state, "output_data") and not st.session_state.output_data.empty:
-        prev = st.session_state.output_data.loc[st.session_state.output_data['ID']==id_obs, col_annotation]
-        if not prev.empty and pd.notna(prev.iloc[-1]):
-            default_espece = prev.iloc[-1]
-
-
-    if default_espece is None and (filtered_data is not None) and (id_obs in list(filtered_data['ID'])):
-        if row[col_annotation] and pd.notna(row[col_annotation]):
-            default_espece = row[col_annotation]
-        else:
-            default_espece = row[species_column] if id_obs in list(filtered_data['ID']) else None
-
-    if default_espece in list_options:
-        default_index = list_options.index(default_espece)
-    else:
-        default_index = 0
-
-    return default_index, default_espece
-
 if __name__ == "__main__":
 
     tab1, tab2 = st.tabs(["Visu&Annotation", "Statistiques"])
 
     ###################################################
     # Chargement des donnees
-    # msg = st.toast("Chargement des données...")
     data, observateurs, especes = load_data(DATA_PATH_NFAURE, DATA_PATH_KOHONEN)
     dict_milieux, milieu_pour_chaque_espece, especes_pour_chaque_milieu = load_Villaret(VILLARET_PATH)
     data_fact_abiotiques = load_data_fact_abiotiques(FACT_PATH)
@@ -1220,11 +1138,6 @@ if __name__ == "__main__":
                     filtered_data, st.session_state.filtered = filter_data(data, filters)
                     status.update(label='Données filtrées', state = "complete")
 
-                # with st.sidebar.status("Calcul de l'atypicité sur les données filtrées...") as status:
-                #     filtered_data["Atypicité"] = compute_atypicity_from_metrics(filtered_data, 
-                #                                                                     data, filters["Méthode"])
-                #     status.update(label='Atypicité calculée', state = "complete")
-                    
                 st.session_state.filters = filters
                 st.session_state.id_obs = None
                 
@@ -1278,7 +1191,6 @@ if __name__ == "__main__":
 
                 actions_possibles = ["Modifier l'espèce/le nom de l'espèce", "Modifier la position", "Signaler un micro-milieux", "Autre (ajouter une remarque)"]
                 st.session_state.type_annotation = st.selectbox("Que souhaitez-vous faire ?", actions_possibles, index=None, placeholder="Veuillez choisir une option")
-                # annoter(data, action, st.session_state.id_obs, especes)
 
                 with st.form(key=form_key):
                     st.subheader("Annotation de l'observation")
@@ -1298,7 +1210,7 @@ if __name__ == "__main__":
                             st.selectbox(f"Modifier l'espèce (Valeur initiale: {default_espece})", especes, index=default_index, key=select_key)
                     
                     
-                        case "Signaler un micro-milieux":
+                        case "Signaler un micro-milieux": # TODO: La proposition des milieux peut être faite en fonction de l'espèce considérée (selon qu'elle est présente dans la liste d'espèce du dictionnaire ou non)
                             if st.session_state.clicked is not None or st.session_state.last_clicked is not None:
                                 st.session_state.clicked = None
                                 st.session_state.last_clicked = None
@@ -1346,11 +1258,7 @@ if __name__ == "__main__":
                                 st.rerun()
                             st.session_state.type_annotation = None
                     
-                    # TODO: ajouter une option d'annotation milieu/micromilieu, en faisant appel à la liste Villaret. 
-                    # La proposition des milieux peut être faite en fonction de l'espèce considérée (selon qu'elle est présente dans la liste d'espèce du dictionnaire ou non)
-
-                    # TODO: ajouter une option de modification de la position, en utilisant un pointage sur la carte interactive
-
+                    
                     # validation radio should also be unique per observation so it resets on id change
                     st.radio("Validation de la donnée:", ['Je confirme', 'Donnée douteuse', "Donnée fausse"], key=validation_key)
 
@@ -1438,11 +1346,10 @@ if __name__ == "__main__":
 
                 fig, ax = plt.subplots()
                 ax.hist(data.loc[data[species_column]==row[species_column]][st.session_state.filters["Méthode"]],
-                        bins=10, color="blue")
+                        bins=21, color="blue", range=(0,10.5))
                 plt.axvline(x=row[st.session_state.filters["Méthode"]], color="red", label=f"Atypicité(observation) = {round(row[st.session_state.filters['Méthode']], 3)}")
-                #TODO : fix first loading
                 
-                plt.xlim((0,10))
+                plt.xlim((0,10.75))
                 plt.xlabel("Atypicité")
                 plt.ylabel("Occurences")
                 ax.legend()
@@ -1534,6 +1441,4 @@ if __name__ == "__main__":
             st.dataframe(filtered_data.head(100), 
                         hide_index=True,
                         column_order=("ID", species_column, "Nom_Valide", "Latitude", "Longitude", "PrenomNom", "NbObs", "Frequence", "Groupe", "Atypicité_NFaure", "Atypicité_Kohonen", "Atypicité_Fréquence", "Atypicité_Hybride", "rank_ground_truth", "RangEspUC", "Code_Releve", "Date_Releve", "NbObs_Releve", "annotation_espece", "annotation_latitude", "annotation_longitude", "annotation_micro", "annotation_remarque", "validation"))
-# TODO : ajouter code postal/commune
-# TODO : superposition cartes
-                
+        

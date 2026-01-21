@@ -106,7 +106,7 @@ def compute_atypicity(filtered_data, data, method, species_column):
     """
     
     # Initialiser le résultat avec la même taille que filtered_data
-    atypicity_scores = np.zeros(len(filtered_data))
+    atypicity_scores = np.full(len(filtered_data), np.nan)
     
     # Créer un mask pour les observations sans rank_ground_truth ET sans RangEspUC
     has_rank_ground_truth = filtered_data["rank_ground_truth"].notna()
@@ -125,6 +125,7 @@ def compute_atypicity(filtered_data, data, method, species_column):
                 denom = maxv - minv
                 if denom != 0:
                     atypicity_scores[mask_valid] = 10 * (filtered_data.loc[mask_valid, "rank_ground_truth"].values - minv) / denom
+            # atypicity_scores[~has_rank_ground_truth]
             return atypicity_scores
 
         case "Atypicité_Kohonen":
