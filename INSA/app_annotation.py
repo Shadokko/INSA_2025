@@ -244,13 +244,6 @@ def load_data(path_nfaure, path_kohonen):
         st.write("La liste des espèces sera extraite des données chargées.")
         especes = list(np.sort(data[species_column].unique()))
 
-    for i in ["espece", "longitude", "latitude", "micro", "remarque"]:
-        if not f"annotation_{i}" in data.columns: # do not erase existing validation annotations
-            data[f"annotation_{i}"] = None
-    if not "validation" in data.columns: # do not erase existing validation annotations
-        data["validation"] = None
-    else:
-        data["validation"] = data["validation"].fillna(None)
     st.success(f"Données chargées avec succès: {len(data)} observations, {len(observateurs)} observateurs, {len(especes)} espèces.")
     return data, observateurs, especes
 
@@ -303,6 +296,35 @@ def load_Villaret(filename):
         especes_pour_chaque_milieu[ID] = {"nom" : nom, "espèces":especes}
 
     return dict_milieux, milieu_pour_chaque_espece, especes_pour_chaque_milieu
+
+@st.cache_data
+def load_annotations(filename, cols, collapsed):
+    """
+    Charge l'ensemble des annotations précédentes.
+    
+    Parameters
+    ----------
+    filename : string
+        chemin vers les données.
+        
+    cols : pandas.Series
+        colonnes qui devront être présentes si le dataframe d'annotations doit être créé.
+        
+    Returns
+    -------
+    annotations : pandas.DataFrame
+        DataFrame contenant les annotations
+    """
+    try : 
+        annotations = pd.read_csv(filename, sep=";")
+    except:
+        annotations = pd.DataFrame(columns=cols)
+    if "Date_annotation" not in annotations.columns:
+        annotations["Date_annotations"] = None 
+    if collapsed:
+        return annotations.drop_duplicates(subset=['ID'], keep='last')
+    else :
+        return annotations
 
 @st.cache_data
 def load_data_fact_abiotiques(filename):
@@ -768,10 +790,24 @@ def save_annotations(data, export_path):
         Table des annotations à exporter.
     export_path : pathlib.Path
         Chemin de base pour l'export (le timestamp sera ajouté au nom).
-    """
-    export_path = export_path.parent / (export_path.stem + time.asctime().replace(" ", "_").replace(":", "-") + export_path.suffix)
-    data.to_csv(export_path, sep=";", index=False)
-    st.success(f"Données exportées vers {export_path.resolve()}")
+    """ 
+    export_path_current_session = export_path.parent / (export_path.stem + time.asctime().replace(" ", "_").replace(":", "-") + export_path.suffix)
+
+    mask_current_session = st.session_state.output_data["ID"].isin(st.session_state.current_session_annotations)
+    if mask_current_session.any():
+        new_output = data.loc[mask_current_session]
+        new_output.to_csv(export_path_current_session, sep=";", index=False)
+        st.success(f"Données de la session exportées vers {export_path_current_session.resolve()}")
+        
+        last_output = load_annotations(export_path, list(data.columns), collapsed=False)
+        global_output = pd.concat([
+            last_output,
+            new_output
+        ], ignore_index=True)
+        
+        global_output.to_csv(export_path, sep=";", index=False)
+        st.success(f"Données globales exportées vers {export_path.resolve()}")
+    
 
 def _save_annotation(id_obs, validation_key, type_annotation):
     """
@@ -805,7 +841,7 @@ def _save_annotation(id_obs, validation_key, type_annotation):
         return
 
     if 'output_data' not in st.session_state:
-        st.session_state.output_data = pd.DataFrame(columns=data.columns)
+        st.session_state.output_data = load_annotations(export_path, cols=list(data.columns), collapsed=True)
 
     # read the current validation status from session state using the provided key
     validation_status = st.session_state.get(validation_key, None)
@@ -840,14 +876,18 @@ def _save_annotation(id_obs, validation_key, type_annotation):
         if new_annotation is not None:
             row.loc[:, annotation_col] = new_annotation
 
+    row["Date_annotation"] = time.asctime()
         
     row = row.assign(validation=validation_status)
 
+    # if id_obs in  st.session_state.current_session_annotations: 
+        
     st.session_state.output_data = pd.concat([
         st.session_state.output_data,
         row
     ], ignore_index=True).drop_duplicates(subset=['ID'], keep='last')
 
+    st.session_state.current_session_annotations.append(id_obs)
     st.success(f"Annotation sauvegardée pour l'observation ID {id_obs}.")
 
 
@@ -1028,8 +1068,6 @@ def get_default_annotation(filtered_data, type_annotation, id_obs, list_options)
     if not mask.any():
         st.error(f"ID inconnu dans les données filtrées : {id_obs}")
         return
-    else :
-        row = filtered_data.loc[mask].iloc[0]
         
     # Prefer previously saved annotation (in output_data) if present, otherwise use recorded species
     default_espece = None
@@ -1037,13 +1075,6 @@ def get_default_annotation(filtered_data, type_annotation, id_obs, list_options)
         prev = st.session_state.output_data.loc[st.session_state.output_data['ID']==id_obs, col_annotation]
         if not prev.empty and pd.notna(prev.iloc[-1]):
             default_espece = prev.iloc[-1]
-        
-    
-    if default_espece is None and (filtered_data is not None) and (id_obs in list(filtered_data['ID'])):
-        if row[col_annotation] and pd.notna(row[col_annotation]):
-            default_espece = row[col_annotation]
-        else:
-            default_espece = row[species_column] if id_obs in list(filtered_data['ID']) else None
 
     if default_espece in list_options:
         default_index = list_options.index(default_espece)
@@ -1063,7 +1094,8 @@ if __name__ == "__main__":
     data_fact_abiotiques = load_data_fact_abiotiques(FACT_PATH)
 
     if "output_data" not in st.session_state:
-        st.session_state.output_data =  pd.DataFrame(columns=data.columns)
+        st.session_state.output_data = load_annotations(export_path, cols=list(data.columns), collapsed=True)
+        st.session_state.current_session_annotations = list()
 
 
     if "map_center" not in st.session_state:
@@ -1192,7 +1224,7 @@ if __name__ == "__main__":
                 actions_possibles = ["Modifier l'espèce/le nom de l'espèce", "Modifier la position", "Signaler un micro-milieux", "Autre (ajouter une remarque)"]
                 st.session_state.type_annotation = st.selectbox("Que souhaitez-vous faire ?", actions_possibles, index=None, placeholder="Veuillez choisir une option")
 
-                with st.form(key=form_key):
+                with st.form(key=form_key, clear_on_submit = True):
                     st.subheader("Annotation de l'observation")
                     # Update the selected id from the map component early so it is preserved across reruns
 
@@ -1277,11 +1309,19 @@ if __name__ == "__main__":
                             st.session_state.id_obs, 
                             st.session_state.output_data)
         
-        st.subheader("Annotations de la session en cours")
+        
         if len(st.session_state.output_data)!=0:
-            st.dataframe(st.session_state.output_data,
+            mask_current_session = st.session_state.output_data["ID"].isin(st.session_state.current_session_annotations)
+            if mask_current_session.any():
+                st.subheader("Annotations de la session en cours")
+                st.dataframe(st.session_state.output_data.loc[mask_current_session].sort_values("ID"),
+                             hide_index=True,
+                             column_order=("Date_annotation", "ID", species_column, "Date_Releve", "annotation_espece", "annotation_latitude", "annotation_longitude", "annotation_micro", "annotation_remarque", "validation", "Atypicité_NFaure", "Atypicité_Kohonen", "Atypicité_Fréquence", ))
+            st.subheader("Toutes les annotations")
+            st.dataframe(st.session_state.output_data.sort_values("ID"),
                          hide_index=True,
-                         column_order=("ID", species_column, "Date_Releve", "annotation_espece", "annotation_latitude", "annotation_longitude", "annotation_micro", "annotation_remarque", "validation", "Atypicité_NFaure", "Atypicité_Kohonen", "Atypicité_Fréquence", ))
+                         column_order=("Date_annotation", "ID", species_column, "Date_Releve", "annotation_espece", "annotation_latitude", "annotation_longitude", "annotation_micro", "annotation_remarque", "validation", "Atypicité_NFaure", "Atypicité_Kohonen", "Atypicité_Fréquence", ))
+    
         else:
             st.write("Les annotations s'afficheront ici une fois enregistrées.")
 

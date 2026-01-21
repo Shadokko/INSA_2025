@@ -1,28 +1,28 @@
 Etapes de l'avancement du projet INSA 2025 Gentiana
 
-Terminï¿½ :
+Termine :
 Mise en place de l'environnement virtuel (IDE, libraries)
 Prise en main de Streamlit
 Prise en main de Streamlit-Folium
-Prototypage de l'UI : carte et filtres (date, espï¿½ce, observateur)
-Problï¿½me : Chargement de la carte (rï¿½solu)
-Ajout d'interactivitï¿½ pour permettre l'annotation et la visualisation des mï¿½tadonnï¿½es (rï¿½cupï¿½ration de id_obs)
-Ajout d'une vue groupï¿½e/synthï¿½tique des observations
-Ajout d'un filtre sur l'atypicitï¿½
-Ajout d'un code couleur reprï¿½sentant l'atypicitï¿½
-Ajout d'un onglet d'annotations (carte, mï¿½tadonnï¿½es) (retirï¿½ : fusion avec 1er onglet)
-Ajout d'une option "Afficher les donnï¿½es du relevï¿½" (retirï¿½ : basculï¿½ sur 2e onglet)
-Ajout d'une option "Afficher les autres observations de l'espï¿½ce" (retirï¿½ : basculï¿½ sur 2e onglet)
+Prototypage de l'UI : carte et filtres (date, espece, observateur)
+Probleme : Chargement de la carte (resolu)
+Ajout d'interactivite pour permettre l'annotation et la visualisation des metadonnees (recuperation de id_obs)
+Ajout d'une vue groupee/synthetique des observations
+Ajout d'un filtre sur l'atypicite
+Ajout d'un code couleur representant l'atypicite
+Ajout d'un onglet d'annotations (carte, metadonnees) (retire : fusion avec 1er onglet)
+Ajout d'une option "Afficher les donnees du releve" (retire : bascule sur 2e onglet)
+Ajout d'une option "Afficher les autres observations de l'espece" (retire : bascule sur 2e onglet)
 Ajout de colonnes pour l'annotation
 Ajout des annotations et d'un bouton "exporter les annotations" (N. Faure)
 Ajout d'un filtre pour afficher seulement les x observations les plus atypiques (N. Faure)
-Renvoyer les chemins d'accï¿½s, paramï¿½tres, constants, etc. dans un fichier de config sï¿½parï¿½ (en .yml) (N. Faure)
-Rï¿½organisation du 1er onglet pour la visualisation et l'annotation (N. Faure)
-Rï¿½organisation du 2e onglet pour les statistiques et visualisation plus avancï¿½e (Carte de l'espï¿½ce, Autres observations du relevï¿½)
-Organisation en 3 compartiments pour une meilleure lisibilitï¿½
-Ajout d'un histogramme pour visualiser l'atypicitï¿½ de l'observation par rapport au reste de l'espï¿½ce
-Importation des donnï¿½es de Villaret
-Calcul de l'indice de Jaccard entre les relevï¿½s et les communautï¿½s floristiques de Villaret
+Renvoyer les chemins d'acces, parametres, constants, etc. dans un fichier de config separe (en .yml) (N. Faure)
+Reorganisation du 1er onglet pour la visualisation et l'annotation (N. Faure)
+Reorganisation du 2e onglet pour les statistiques et visualisation plus avancee (Carte de l'espece, Autres observations du releve)
+Organisation en 3 compartiments pour une meilleure lisibilite
+Ajout d'un histogramme pour visualiser l'atypicite de l'observation par rapport au reste de l'espece
+Importation des donnees de Villaret
+Calcul de l'indice de Jaccard entre les releves et les communautes floristiques de Villaret
 Ajout d'un filtre sur l'ID de l'observation
 Ajout profil écologique du relevé avec indices d'Ellenberg
 Traduction en français des dates
@@ -31,12 +31,12 @@ Ajout de bulles d'informations pour expliquer les résultats du 2e onglet
 Affichage de messages explicatifs quand il n'y a aucune correspondance pour l'indice de Jaccard (Villaret) ou le profil écologique (indices d'Ellenberg)
 Séparation en modules 'metrics' et 'data_utils'
 Ajout de nouvelles options d'annotation : position et remarque
+Ajout du chargement des annotations des sessions précedentes et séparation de l'output en 2 fichiers
 
 En cours :
-Lier le tableau de donnï¿½es affichï¿½ ï¿½ la carte et aux mï¿½tadonnï¿½es affichï¿½es
-Problï¿½me : Chargement des donnï¿½es trop long (partiellement rï¿½solu)
-Prise en main et comparaison des mï¿½triques d'atypicitï¿½ dï¿½jï¿½ implï¿½mentï¿½es dans les modï¿½les fournis
+Lier le tableau de donnees affiche e la carte et aux metadonnees affichees
+Probleme : Chargement des donnees trop long (partiellement resolu)
+Prise en main et comparaison des metriques d'atypicite deje implementees dans les modeles fournis
 
-ï¿½ venir : 
+A venir : 
 Implement a drag'n'drop option to upload a new data file, or a file selector with a browser
-Ajout d'un code couleur reprï¿½sentant les donnï¿½es dï¿½jï¿½ vï¿½rifiï¿½es
