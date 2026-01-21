@@ -415,10 +415,18 @@ def compute_center(data):
     center : tuple
         coordonnées (latitude, longitude) du centre géographique des données
     """  
-    lat_center = float(data["Latitude"].max() + data["Latitude"].min())/2
-    lon_center = float(data["Longitude"].max() + data["Longitude"].min())/2
-    lat_expand = data["Latitude"].max() - data["Latitude"].min()
-    lon_expand = data["Longitude"].max() - data["Longitude"].min()
+    
+    mask = st.session_state.output_data['ID'].isin(data["ID"])
+    lat_max = max(st.session_state.output_data.loc[mask, 'annotation_latitude'].max(), data["Latitude"].max())
+    lat_min = min(st.session_state.output_data.loc[mask, 'annotation_latitude'].min(), data["Latitude"].min())
+    lon_max = max(st.session_state.output_data.loc[mask, 'annotation_longitude'].max(), data["Longitude"].max())
+    lon_min = min(st.session_state.output_data.loc[mask, 'annotation_longitude'].min(), data["Longitude"].min())
+    
+    lat_center = float(lat_max + lat_min)/2
+    lon_center = float(lon_max + lon_min)/2
+    lat_expand = lat_max - lat_min
+    lon_expand = lon_max - lon_min
+    
     expand = max(lat_expand, lon_expand)
     if expand < 0.1: zoom = 11
     elif expand < 0.3: zoom = 10
@@ -487,15 +495,25 @@ def make_map(df, colormap, toggle_clusters=False, toggle_dpt=False, annotated=[]
     group_1 = folium.FeatureGroup("observations")
 
     for index, row in df.iterrows(): # on affiche les N marqueurs
-        if row['ID'] in annotated: radius = 3
-        else: radius = 7
+        position = list(row.loc[['Latitude', 'Longitude']])
+        if row['ID'] in annotated: 
+            radius = 3
+            mask_out = st.session_state.output_data['ID'] == row['ID'] 
+            annotations_coords = st.session_state.output_data.loc[mask_out, ['annotation_latitude', 'annotation_longitude']].dropna()
+            annotation_coords = annotations_coords.iloc[-1] if not annotations_coords.empty else None
+
+            if isinstance(annotation_coords, pd.Series) and (annotation_coords['annotation_latitude'] != row['Latitude'] or annotation_coords['annotation_longitude'] != row['Longitude']):
+                position = (annotation_coords['annotation_latitude'], annotation_coords['annotation_longitude'])
+        else: 
+            radius = 7
 
         if np.isnan(row[st.session_state.filters["Méthode"]]):
             fill_c = "white"
         else:
             fill_c = colormap(float(row[st.session_state.filters["Méthode"]]))
 
-        folium.CircleMarker(location=list(row.loc[['Latitude', 'Longitude']]),
+
+        folium.CircleMarker(location=position,
                             radius=radius,
                             color="black",
                             fill=True,
@@ -745,7 +763,7 @@ def afficher_stats_atypicite(data, id_obs, output_data, method):
     
     lines = []
     lines.append(f"**spécimens observés** : {int(row['NbObs'])}")
-    # lines.append(f"**fréquence de l'espèce** : {float(row['Frequence'][1:-1:])}") #TODO
+    lines.append(f"**fréquence de l'espèce** : {float(row['Frequence'])}")
     lines.append(f"**atypicité** : {round(row[method], 3)}")
     
     # Use a single markdown with <br> to avoid extra vertical spacing between lines
@@ -856,7 +874,7 @@ def _save_annotation(id_obs, validation_key, type_annotation):
         row = data.loc[data["ID"]==id_obs].copy()
     
     if type_annotation == "coords":
-        new_annotation = new_annotation.replace("(","").replace(")","").split(",")
+        new_annotation = st.session_state.last_clicked
         cols = ['latitude', 'longitude']
 
         for i in range(2):
@@ -866,7 +884,7 @@ def _save_annotation(id_obs, validation_key, type_annotation):
             if annotation_col not in row.columns:
                 row[annotation_col] = None
             if new_annotation is not None:
-                row.loc[:, annotation_col] = float(new_annotation[i].strip())
+                row.loc[:, annotation_col] = new_annotation[i]
     else : 
         annotation_col = 'annotation_' + type_annotation
 
@@ -1085,7 +1103,7 @@ def get_default_annotation(filtered_data, type_annotation, id_obs, list_options)
 
 if __name__ == "__main__":
 
-    tab1, tab2 = st.tabs(["Visu&Annotation", "Statistiques"])
+    tab1, tab2, tab3 = st.tabs(["Visu&Annotation", "Statistiques", "Mode d'emploi"])
 
     ###################################################
     # Chargement des donnees
@@ -1120,7 +1138,6 @@ if __name__ == "__main__":
         filtered_data = None
         
     if "last_clicked" not in st.session_state : 
-        st.session_state.clicked = None
         st.session_state.last_clicked = None
         st.session_state.type_annotation = None
 
@@ -1232,8 +1249,7 @@ if __name__ == "__main__":
 
                     match st.session_state.type_annotation:
                         case "Modifier l'espèce/le nom de l'espèce":
-                            if st.session_state.clicked is not None or st.session_state.last_clicked is not None:
-                                st.session_state.clicked = None
+                            if st.session_state.last_clicked is not None:
                                 st.session_state.last_clicked = None
                                 st.rerun()
                             st.session_state.type_annotation = "espece"
@@ -1243,8 +1259,7 @@ if __name__ == "__main__":
                     
                     
                         case "Signaler un micro-milieux": # TODO: La proposition des milieux peut être faite en fonction de l'espèce considérée (selon qu'elle est présente dans la liste d'espèce du dictionnaire ou non)
-                            if st.session_state.clicked is not None or st.session_state.last_clicked is not None:
-                                st.session_state.clicked = None
+                            if st.session_state.last_clicked is not None:
                                 st.session_state.last_clicked = None
                                 st.rerun()
                             st.session_state.type_annotation = "micro"
@@ -1255,28 +1270,17 @@ if __name__ == "__main__":
                         case "Modifier la position":
                             st.session_state.type_annotation = "coords"
                             select_key = f"select_coords_{st.session_state.id_obs}"
-                            st.session_state.clicked = st_data1.get('last_clicked') if isinstance(st_data1, dict) else None
 
-                            st.write("Clickez sur la carte pour choisir la nouvelle position de l'observation")
-                            if st.session_state.clicked is None:
-
-                                if st.session_state.last_clicked is None :
-                                    st.write("Aucune position selectionnée")
-
-                                else :
-                                    st.write("Les nouvelles coordonnées seront : ")
-                                    st.text_area("Les nouvelles coordonnées seront : ", value=st.session_state.last_clicked, key=select_key, height="content", disabled=True, label_visibility="collapsed", width="stretch")
-
-                            else :
-                                st.markdown(":small[Récupération des coordonnées...]")
-                                st.session_state.clicked = tuple(st.session_state.clicked.values())
-                                st.session_state.last_clicked = st.session_state.clicked
+                            st.text("Clickez sur la carte pour choisir la nouvelle position de l'observation", help="La nouvelle position est représentée par un marqueur")
+                            
+                            clicked = st_data1.get('last_clicked') if isinstance(st_data1, dict) else None
+                            if clicked:
+                                st.session_state.last_clicked = tuple(clicked.values())
                                 st.rerun()
 
 
                         case "Autre (ajouter une remarque)":
-                            if st.session_state.clicked is not None or st.session_state.last_clicked is not None:
-                                st.session_state.clicked = None
+                            if st.session_state.last_clicked is not None:
                                 st.session_state.last_clicked = None
                                 st.rerun()
                             st.session_state.type_annotation = "remarque"
@@ -1284,18 +1288,17 @@ if __name__ == "__main__":
                             st.text_area("Saisissez ici vos remarques", key=select_key)
 
                         case None:
-                            if st.session_state.clicked is not None or st.session_state.last_clicked is not None:
-                                st.session_state.clicked = None
+                            if st.session_state.last_clicked is not None:
                                 st.session_state.last_clicked = None
+                                st.session_state.type_annotation = None
                                 st.rerun()
-                            st.session_state.type_annotation = None
-                    
                     
                     # validation radio should also be unique per observation so it resets on id change
                     st.radio("Validation de la donnée:", ['Je confirme', 'Donnée douteuse', "Donnée fausse"], key=validation_key)
 
                     # pass the validation widget key so the callback reads the current value at execution time
-                    st.form_submit_button("Sauvegarder l'annotation", on_click=_save_annotation, args=(id_obs, validation_key, st.session_state.type_annotation))
+                    if st.form_submit_button("Sauvegarder l'annotation", on_click=_save_annotation, args=(id_obs, validation_key, st.session_state.type_annotation)) and st.session_state.type_annotation == "coords":
+                        st.rerun()
 
 
         ###################################################
@@ -1481,4 +1484,5 @@ if __name__ == "__main__":
             st.dataframe(filtered_data.head(100), 
                         hide_index=True,
                         column_order=("ID", species_column, "Nom_Valide", "Latitude", "Longitude", "PrenomNom", "NbObs", "Frequence", "Groupe", "Atypicité_NFaure", "Atypicité_Kohonen", "Atypicité_Fréquence", "Atypicité_Hybride", "rank_ground_truth", "RangEspUC", "Code_Releve", "Date_Releve", "NbObs_Releve", "annotation_espece", "annotation_latitude", "annotation_longitude", "annotation_micro", "annotation_remarque", "validation"))
-        
+    with tab3:
+        st.write("explications")

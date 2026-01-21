@@ -32,9 +32,11 @@ Affichage de messages explicatifs quand il n'y a aucune correspondance pour l'in
 Séparation en modules 'metrics' et 'data_utils'
 Ajout de nouvelles options d'annotation : position et remarque
 Ajout du chargement des annotations des sessions précedentes et séparation de l'output en 2 fichiers
+Affichage des observations à leurs coordonnées post-annotation si disponible
+Correction du calcul du centre de la carte, pour prendre en compte les nouvelles positions
 
 En cours :
-Lier le tableau de donnees affiche e la carte et aux metadonnees affichees
+Lier le tableau de donnees affiche a la carte et aux metadonnees affichees
 Probleme : Chargement des donnees trop long (partiellement resolu)
 Prise en main et comparaison des metriques d'atypicite deje implementees dans les modeles fournis
 
