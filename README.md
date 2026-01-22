@@ -40,19 +40,18 @@ Supervisors@Gentiana:
 
 CAUTION: the input files should be changed with appropriate pathes to be able to run the scripts (paths are absolute... sorry about that). In addition, I did not test the scripts since... 2024. I'll do it in the following days.
 
-## running the app
+## Running the app
 
-- Make sure you have cloned the git project and got your python virtual environment set up (see above for details). If you do not want to intall the full environement and just want to run the app, a "light" version `requirements_just4app.txt` should be sufficient.
-- checkout to the correct branch``git checkout Anthony_ProjectExploration`` and pull the latest version `git pull`
+- Make sure you have cloned the git project and got your python virtual environment set up: `pip install -r requirements_just4app.txt` (or if you want the full environment: `pip install -r requirements.txt`).
+- Checkout to the correct branch ``git checkout Anthony_ProjectExploration`` and pull the latest version `git pull`.
 - Go to the root folder <INSA_2025>
-- check parameter file `.\INSA\params.yml` DATA_PATH should point towards a file with species observations, prediction ranks, etc...
-- run the app `streamlit run .\INSA\app_annotation.py`
+- Check the parameter file `.\INSA\params.yml`: `DATA_PATH_NFAURE` and `DATA_PATH_KOHONEN` should point towards CSV files with observations and prediction ranks (from N. Faure's and Kohonen models). Optional: update `species_list_path` and `export_path` if your locations differ.
+- Make sure the required columns are present in your data files. For N. Faure's model file: `PrenomNom`, `Latitude`, `Longitude`, `rank_ground_truth`, `Nom flore`, `NbObs`, `Nom_Valide`,`Groupe`, `Date_Releve`, `Code_Releve`, `NbObs_Releve`, `Code_Espèce`. For Kohonen model file: `PrenomNom`, `Lat`, `Lon`, `RangEspUC`, `Nom_Flore`, `NbObs`, `Nom_Valide`, `Groupe`, `DateObs`, `Code_Releve`, `NbObs_Releve`, `Code_Espece`, `Code_Observation`, `UC`, `distUCAvere`, `ProbaObs`.
+- Make sure you have the `BDD Villaret.xlsx`, `Liens_Espece-FactAbiotique_MultiReferentiels.csv` and `mEspListe.rds` files in your `.\databases` folder.
+- Run the app (from the root folder <INSA_2025>): `streamlit run .\INSA\app_annotation.py`
 
-Columns that should be present in the DATA_PATH file: ["PrenomNom", "Latitude", "Longitude", "rank_ground_truth", "Nom flore", "Date_Releve"]
-
-"rank_ground_truth" can be computed using `nf_src\evaluate_rf_on_infloris.py`, but this requires a pretrained model. In the short term (Dec 2025), ask Nicolas Faure for support.
-
-
-
+Notes:
+- Once exported, the annotations are stored in the `.\output\INSA_annotation_tool` folder. To find its location, check the `export_path` in the parameter file `.\INSA\params.yml`.
+- The "rank_ground_truth" values from N. Faure's prediction model can be computed using `nf_src\evaluate_rf_on_infloris.py`, but this requires a pretrained model. In the short term, ask Nicolas Faure for support.
 
 

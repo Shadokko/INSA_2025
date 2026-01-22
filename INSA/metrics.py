@@ -76,7 +76,7 @@ def compute_proportion_lower_atypicity(df_data, species_column, species, atypici
     
     Returns
     -------
-    percentage : 
+    percentage : float
         Pourcentage des observations de l'espèce qui ont une atypicité inférieure à l'observation, arrondi aux dixièmes
     """
     
@@ -102,7 +102,7 @@ def compute_atypicity(filtered_data, data, method, species_column):
         DataFrame complet utilisé pour déterminer l'échelle (min/max).
     method : str
         Méthode de calcul. Actuellement pris en charge : "Atypicité_NFaure", "Atypicité_Kohonen",
-        "Atypicité_Fréquence" ou "Atypicité_Hybride".
+        "Atypicité_Fréquence".
     species_column : str
         Nom de la colonne contenant les noms d'espèces dans les DataFrames.
     
@@ -164,32 +164,7 @@ def compute_atypicity(filtered_data, data, method, species_column):
                 return 10 * (1 - (filtered_data["Frequence"].values - minv) / denom)
             else:
                 return np.zeros(len(filtered_data))
-        
-        # case "Atypicité_Hybride":
-        #     # Par défaut, calcule un score hybride égal à 50% NFaure + 50% Kohonen,
-        #     # en normalisant chaque métrique sur l'échelle 0-10 comme ci-dessus.
-        #     # Les pondérations personnalisées sont gérées côté UI (app_annotation).
 
-        #     # NFaure
-        #     if ("rank_ground_truth" in filtered_data.columns) and ("rank_ground_truth" in data.columns) and (not filtered_data["rank_ground_truth"].isna().all()):
-        #         nf_min = np.nanmin(data["rank_ground_truth"]) if len(data["rank_ground_truth"]) else 0
-        #         nf_max = np.nanmax(data["rank_ground_truth"]) if len(data["rank_ground_truth"]) else 0
-        #         nf_denom = nf_max - nf_min
-        #         nf_scores = 10 * (filtered_data["rank_ground_truth"].values - nf_min) / nf_denom if nf_denom != 0 else np.zeros(len(filtered_data))
-        #     else:
-        #         nf_scores = np.zeros(len(filtered_data))
-
-        #     # Kohonen
-        #     if ("RangEspUC" in filtered_data.columns) and ("RangEspUC" in data.columns) and (not filtered_data["RangEspUC"].isna().all()):
-        #         ko_min = np.nanmin(data["RangEspUC"]) if len(data["RangEspUC"]) else 0
-        #         ko_max = np.nanmax(data["RangEspUC"]) if len(data["RangEspUC"]) else 0
-        #         ko_denom = ko_max - ko_min
-        #         ko_scores = 10 * (filtered_data["RangEspUC"].values - ko_min) / ko_denom if ko_denom != 0 else np.zeros(len(filtered_data))
-        #     else:
-        #         ko_scores = np.zeros(len(filtered_data))
-
-        #     # Hybride 50/50 par défaut
-        #     return 0.5 * nf_scores + 0.5 * ko_scores
         
 def compute_frequency(data, species_column):
     """
